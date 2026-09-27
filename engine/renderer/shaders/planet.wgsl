@@ -75,7 +75,7 @@ fn displacedNormal(i:VSOut)->vec3<f32>{let radial=normalize(i.radial);let dx=dpd
 fn materialWeights(radial:vec3<f32>,n:vec3<f32>,h:f32)->vec4<f32>{
   let hn=h/max(u.timeRotationHeight.z,1.0);let slope=1.0-clamp(dot(n,radial),0.0,1.0);let lat=abs(radial.y);let seed=vec3<f32>(u.timeRotationHeight.w);
   let macroField=noise(radial*8.0+seed*.013);let regional=noise(radial*37.0+seed*.071);
-  let basin=(1.0-smoothstep(-.03,.07,hn))*(.8+ .2*macroFieldField);
+  let basin=(1.0-smoothstep(-.03,.07,hn))*(.8+ .2*macroField);
   let snow=smoothstep(.38,.7,hn+lat*.23+regional*.05)*(1.0-smoothstep(.18,.62,slope));
   let rock=clamp(smoothstep(.12,.58,slope)+smoothstep(.27,.62,hn)*.45,0.0,1.0)*(1.0-snow*.7);
   let soil=max(0.03,1.0-basin-snow-rock)*(.75+.25*macroField);
