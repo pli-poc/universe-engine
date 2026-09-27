@@ -13,7 +13,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -25,6 +25,8 @@ jobs:
       - run: npm run build
       - name: Verify actual WebGPU rendering before publishing
         run: xvfb-run -a node scripts/browser-smoke.mjs
+      - name: Verify terrain seams and transitions before publishing
+        run: xvfb-run -a node scripts/terrain-browser.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

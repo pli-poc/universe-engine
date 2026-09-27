@@ -11,7 +11,7 @@ concurrency:
 jobs:
   browser:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,8 +20,10 @@ jobs:
       - run: npm install --no-save --package-lock=false playwright@1.55.1 pngjs@7.0.0
       - run: npx playwright install --with-deps chromium
       - run: npm run check && npm run build
-      - name: Local WebGPU render
+      - name: Production WebGPU render and recovery
         run: xvfb-run -a node scripts/browser-smoke.mjs
+      - name: Planet seams, corners and morph coverage
+        run: xvfb-run -a node scripts/terrain-browser.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
