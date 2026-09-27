@@ -2,7 +2,8 @@ import { createPatchGrid } from '../planet/patch-grid.js';
 import { PATCH_RESOLUTION, RENDER_INSTANCE_FLOATS } from '../planet/transitions.js';
 import { uploadInstances } from './buffer-upload.js';
 export class WebGPURenderer {
-  constructor({onError=()=>{}}={}){this.onError=onError;this.error=null;this.instanceCapacity=4096;this.disposed=false;}
+  constructor({onError=()=>{}}={}){this.onError=onError;this.error=null;this.instanceCapacity=4096;this.disposed=false;this.inFlight=0;}
+  get canRender(){return !this.error&&!this.disposed&&this.inFlight<2;}
   fail(error){if(this.disposed||this.error)return;this.error=error instanceof Error?error:new Error(String(error));this.onError(this.error);}
   async init(canvas){
     this.gpu=navigator.gpu;if(!this.gpu)throw new Error('WebGPU is unavailable. Use an HTTPS page and a WebGPU-capable browser.');
@@ -40,7 +41,7 @@ export class WebGPURenderer {
     this.depth=this.device.createTexture({label:'Planet reverse-Z depth',size:[width,height],format:'depth32float',usage:GPUTextureUsage.RENDER_ATTACHMENT});
   }
   render(uniforms,instances){
-    if(this.error)throw this.error;if(this.disposed)throw new Error('Renderer is disposed');
+    if(this.error)throw this.error;if(this.disposed)throw new Error('Renderer is disposed');if(this.inFlight>=2)throw new Error('GPU frame queue is saturated');
     if(!(uniforms instanceof Float32Array)||uniforms.length!==32||!uniforms.every(Number.isFinite))throw new Error('Invalid planet uniforms');
     this.resize();this.device.queue.writeBuffer(this.uniformBuffer,0,uniforms);
     const count=uploadInstances(this.device.queue,this.instanceBuffer,instances,this.instanceCapacity,RENDER_INSTANCE_FLOATS);
@@ -48,7 +49,12 @@ export class WebGPURenderer {
       colorAttachments:[{view:this.context.getCurrentTexture().createView(),clearValue:{r:.0015,g:.004,b:.008,a:1},loadOp:'clear',storeOp:'store'}],
       depthStencilAttachment:{view:this.depth.createView(),depthClearValue:0,depthLoadOp:'clear',depthStoreOp:'store'},
     });
-    pass.setPipeline(this.pipeline);pass.setBindGroup(0,this.bindGroup);pass.setVertexBuffer(0,this.vertexBuffer);pass.setVertexBuffer(1,this.instanceBuffer);pass.setIndexBuffer(this.indexBuffer,'uint32');if(count)pass.drawIndexed(this.indexCount,count);pass.end();this.device.queue.submit([encoder.finish()]);return count;
+    pass.setPipeline(this.pipeline);pass.setBindGroup(0,this.bindGroup);pass.setVertexBuffer(0,this.vertexBuffer);pass.setVertexBuffer(1,this.instanceBuffer);pass.setIndexBuffer(this.indexBuffer,'uint32');if(count)pass.drawIndexed(this.indexCount,count);pass.end();
+    this.device.queue.submit([encoder.finish()]);
+    // Limit queued work rather than feeding unbounded frames to a slower GPU.
+    this.inFlight++;
+    this.device.queue.onSubmittedWorkDone().then(()=>{this.inFlight--;},error=>{this.inFlight--;this.fail(error);});
+    return count;
   }
   async verifyFirstFrame(){await this.device.queue.onSubmittedWorkDone();if(this.error)throw this.error;}
   dispose(){this.disposed=true;this.resizeObserver?.disconnect();for(const key of ['depth','vertexBuffer','indexBuffer','instanceBuffer','uniformBuffer'])this[key]?.destroy();this.context?.unconfigure();this.device?.destroy();}

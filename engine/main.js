@@ -15,7 +15,6 @@ const fmt=m=>m>1e9?`${(m/1e9).toFixed(2)} Gm`:m>1e6?`${(m/1e6).toFixed(2)} Mm`:m
 async function boot(){
   await renderer.init(canvas);if(stopped)return;
   const system=createDemoSystem(),planet=system.planet,params=new URLSearchParams(location.search);
-  // Reserve capacity for BOTH complete endpoint cuts during a transition.
   const maxLogical=Math.min(1536,Math.floor(renderer.instanceCapacity/2)),requested=Number(params.get('lodBudget')||maxLogical);
   const budget=Number.isFinite(requested)?Math.max(6,Math.min(maxLogical,Math.floor(requested))):maxLogical;
   const quadtree=new PlanetQuadtree({maxLevel:12,splitPixels:230,mergePixels:135,maxTiles:budget});
@@ -33,7 +32,6 @@ async function boot(){
   document.querySelectorAll('[data-view]').forEach(button=>button.addEventListener('click',()=>setView(presets[button.dataset.view])));
   element('toggle-grid')?.addEventListener('click',()=>{grid=!grid;element('toggle-grid').setAttribute('aria-pressed',String(grid));});
   document.addEventListener('keydown',event=>{if(event.code==='KeyR')setView();if(event.code==='KeyL')grid=!grid;});addEventListener('blur',()=>camera.keys.clear());
-  // Explicit reproducibility API, enabled only by ?diagnostics. No account information.
   if(params.has('diagnostics'))window.__astravaDebug={
     setView,
     setBudget(value){if(!Number.isInteger(value)||value<6||value>maxLogical)throw new RangeError('Invalid tile budget');quadtree.maxTiles=value;selectionAge=1;},
@@ -45,6 +43,8 @@ async function boot(){
   let last=performance.now(),averageMs=16.7;
   function draw(now){
     if(stopped)return;
+    // Keep input/event processing responsive without building an unbounded GPU queue.
+    if(!renderer.canRender){requestAnimationFrame(draw);return;}
     try{
       const elapsed=Math.max(0,now-last),dt=Math.min(.05,elapsed/1000);last=now;if(document.hidden){requestAnimationFrame(draw);return;}
       if(!hold){simTime+=dt;transitions.advance(dt);selectionAge+=dt;}
@@ -56,7 +56,7 @@ async function boot(){
       const projection=perspective(fov,canvas.width/canvas.height,Math.max(1,Math.min(100,Math.max(altitude,0)*.001))),uniforms=new Float32Array(32);
       uniforms.set(mul(projection,viewRotation(camera.yaw,camera.pitch)));uniforms.set([-relative[0],-relative[1],-relative[2],planet.radius],16);uniforms.set([simTime,rotation,planet.maxTerrainHeight,planet.seed],20);uniforms.set([...normalize(sub(system.star.position,center)),1],24);uniforms.set([Math.max(0,altitude),distance,grid?1:0,transitions.alpha],28);
       const count=renderer.render(uniforms,transitions.instances);
-      Object.assign(diagnostics,{frames:diagnostics.frames+1,tiles:count,altitude,logicalTiles:transitions.target.length,cutBudget:quadtree.maxTiles,drawCapacity:renderer.instanceCapacity,transitioning:transitions.active,morph:transitions.alpha,stitchedEdges:quadtree.stats.stitchedEdges,balanceSplits:quadtree.stats.balanceSplits,phase:'2B'});
+      Object.assign(diagnostics,{frames:diagnostics.frames+1,tiles:count,altitude,logicalTiles:transitions.target.length,cutBudget:quadtree.maxTiles,drawCapacity:renderer.instanceCapacity,inFlight:renderer.inFlight,transitioning:transitions.active,morph:transitions.alpha,stitchedEdges:quadtree.stats.stitchedEdges,balanceSplits:quadtree.stats.balanceSplits,phase:'2B'});
       averageMs=averageMs*.92+elapsed*.08;element('altitude').textContent=fmt(Math.max(0,altitude));element('distance').textContent=fmt(distance);element('frame-time').textContent=`${averageMs.toFixed(1)} ms`;element('tiles').textContent=String(count);element('lod').textContent=String(quadtree.stats.maxLevel);element('budget').textContent=quadtree.stats.budgetLimited?'LIMITED · balanced parents retained':'OK';
       if(element('stitches'))element('stitches').textContent=String(quadtree.stats.stitchedEdges);if(element('transition'))element('transition').textContent=transitions.active?`Morphing ${(transitions.alpha*100).toFixed(0)}%`:'Stable';
       if(diagnostics.frames===1)renderer.verifyFirstFrame().then(()=>{if(!stopped){diagnostics.state='running';element('runtime-status').textContent='WebGPU online · seam-safe terrain';}}).catch(fail);
