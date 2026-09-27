@@ -18,7 +18,7 @@ export class WebGPURenderer{
       layout:"auto",
       vertex:{module,entryPoint:"vsMain",buffers:[{arrayStride:12,attributes:[{shaderLocation:0,offset:0,format:"float32x3"}]}]},
       fragment:{module,entryPoint:"fsMain",targets:[{format:this.format}]},
-      primitive:{topology:"triangle-list",cullMode:"back"},
+      primitive:{topology:"triangle-list",cullMode:"none"},
       depthStencil:{format:"depth24plus",depthWriteEnabled:true,depthCompare:"less"}
     });
     this.bindGroup=this.device.createBindGroup({layout:this.pipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.uniformBuffer}}]});

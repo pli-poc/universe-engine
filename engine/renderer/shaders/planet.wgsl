@@ -18,7 +18,7 @@ struct VSOut {
 
 fn hash31(p:vec3<f32>)->f32{
   var q=fract(p*vec3<f32>(0.1031,0.11369,0.13787));
-  q+=dot(q,q.yzx+19.19);
+  q+=vec3<f32>(dot(q,q.yzx+vec3<f32>(19.19)));
   return fract((q.x+q.y)*q.z);
 }
 fn noise(p:vec3<f32>)->f32{
@@ -41,8 +41,8 @@ fn rotateY(p:vec3<f32>,a:f32)->vec3<f32>{
 @vertex fn vsMain(input:VSIn)->VSOut{
   var o:VSOut;
   let d=normalize(input.dir);
-  let continents=fbm(d*2.7+u.timeRotationHeight.w)-0.49;
-  let ridged=1.0-abs(fbm(d*8.0+31.0)*2.0-1.0);
+  let continents=fbm(d*2.7+vec3<f32>(u.timeRotationHeight.w))-0.49;
+  let ridged=1.0-abs(fbm(d*8.0+vec3<f32>(31.0))*2.0-1.0);
   let h=(continents*0.78+max(continents,0.0)*ridged*0.62)*u.timeRotationHeight.z;
   let rd=rotateY(d,u.timeRotationHeight.y);
   let world=u.centerRadius.xyz+rd*(u.centerRadius.w+h);
