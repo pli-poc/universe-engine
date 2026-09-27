@@ -1,0 +1,30 @@
+name: Prepare locked pipeline development environment
+on:
+  push:
+    branches: [ci/pipeline-tiering]
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --ignore-scripts
+      - name: Export reproducible development inputs
+        run: |
+          mkdir -p /tmp/astrava-dev
+          git archive HEAD | tar -x -C /tmp/astrava-dev
+          cp package-lock.json /tmp/astrava-dev/
+          cp -r node_modules /tmp/astrava-dev/
+          tar -czf astrava-development.tgz -C /tmp/astrava-dev .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: astrava-pipeline-development
+          path: astrava-development.tgz
+          retention-days: 1
