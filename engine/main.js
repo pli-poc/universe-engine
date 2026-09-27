@@ -7,13 +7,13 @@ import {PlanetQuadtree} from "./planet/quadtree.js";
 import {WebGPURenderer} from "./renderer/webgpu-renderer.js";
 
 const canvas=document.querySelector("#astrava-canvas"),fallback=document.querySelector("#fallback");
-const statusEl=document.querySelector("#runtime-status"),altitudeEl=document.querySelector("#altitude"),distanceEl=document.querySelector("#distance"),frameEl=document.querySelector("#frame-time"),tilesEl=document.querySelector("#tiles"),lodEl=document.querySelector("#lod");
+const statusEl=document.querySelector("#runtime-status"),altitudeEl=document.querySelector("#altitude"),distanceEl=document.querySelector("#distance"),frameEl=document.querySelector("#frame-time"),tilesEl=document.querySelector("#tiles"),lodEl=document.querySelector("#lod"),budgetEl=document.querySelector("#budget");
 const fmt=m=>m>1e9?(m/1e9).toFixed(2)+" Gm":m>1e6?(m/1e6).toFixed(2)+" Mm":m>1e3?(m/1e3).toFixed(1)+" km":m.toFixed(0)+" m";
 
 async function boot(){
   const renderer=new WebGPURenderer();
   try{await renderer.init(canvas)}catch(err){console.error(err);fallback.hidden=false;statusEl.textContent="WebGPU unavailable";return}
-  const system=createDemoSystem(),planet=system.planet,quadtree=new PlanetQuadtree({maxLevel:12,splitPixels:190,maxTiles:4096});
+  const system=createDemoSystem(),planet=system.planet,quadtree=new PlanetQuadtree({maxLevel:12,splitPixels:230,mergePixels:135,maxTiles:4095});
   const t0=performance.now()/1000,planetPos=planet.universePosition(t0);
   const camera=new FreeCamera(v3(planetPos[0],planetPos[1]+planet.radius*.18,planetPos[2]+planet.radius*2.55));
   camera.pitch=-.07;camera.attach(canvas);statusEl.textContent="WebGPU online · quadtree planetary LOD";
@@ -35,7 +35,7 @@ async function boot(){
     u.set([Math.max(0,alt2),dist2,tiles.length,quadtree.stats.maxLevel],28);
     const drawn=renderer.render(u,instances);
     fpsSmooth=fpsSmooth*.92+(dt*1000)*.08;altitudeEl.textContent=fmt(Math.max(0,alt2));distanceEl.textContent=fmt(dist2);frameEl.textContent=fpsSmooth.toFixed(1)+" ms";
-    if(tilesEl)tilesEl.textContent=String(drawn);if(lodEl)lodEl.textContent=String(quadtree.stats.maxLevel);
+    if(tilesEl)tilesEl.textContent=String(drawn);if(lodEl)lodEl.textContent=String(quadtree.stats.maxLevel);if(budgetEl)budgetEl.textContent=quadtree.stats.budgetLimited?"LIMITED · parent fallback":"OK";
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

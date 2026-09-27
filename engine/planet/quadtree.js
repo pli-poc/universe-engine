@@ -7,55 +7,101 @@ function rotateYInverse(v,a){
 function distance3(a,b){return Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2])}
 
 export class PlanetQuadtree{
-  constructor({maxLevel=12,splitPixels=230,mergePixels=135,maxTiles=4096}={}){
-    this.maxLevel=maxLevel;this.splitPixels=splitPixels;this.mergePixels=mergePixels;this.maxTiles=maxTiles;
-    this.splitState=new Set();this.stats={tiles:0,maxLevel:0,candidates:0};
+  constructor({maxLevel=12,splitPixels=230,mergePixels=135,maxTiles=4095}={}){
+    this.maxLevel=maxLevel;
+    this.splitPixels=splitPixels;
+    this.mergePixels=mergePixels;
+    this.maxTiles=maxTiles;
+    this.splitState=new Set();
+    this.stats={tiles:0,maxLevel:0,candidates:0,budgetLimited:false};
   }
+
   select({planetRadius,cameraRelativeWorld,planetRotation,viewportHeight,fovY}){
     const cameraLocal=rotateYInverse(cameraRelativeWorld,-planetRotation);
-    const cameraDistance=Math.hypot(...cameraLocal);
-    const cameraDir=cameraDistance>0?cameraLocal.map(v=>v/cameraDistance):[0,0,1];
     const focal=viewportHeight/(2*Math.tan(fovY/2));
-    const visible=[];let candidates=0,maxSeen=0;
-    const visit=(face,level,x,y)=>{
-      if(visible.length>=this.maxTiles)return;
+    let candidates=0;
+
+    const makeTile=(face,level,x,y)=>{
       candidates++;
-      const n=1<<level,size=2/n,u0=-1+x*size,v0=-1+y*size;
+      const n=1<<level;
+      const size=2/n;
+      const u0=-1+x*size;
+      const v0=-1+y*size;
       const center=faceDirection(face,u0+size*.5,v0+size*.5);
       const tileWorld=[center[0]*planetRadius,center[1]*planetRadius,center[2]*planetRadius];
       const tileDistance=Math.max(1,distance3(cameraLocal,tileWorld));
-      const horizonDot=center[0]*cameraDir[0]+center[1]*cameraDir[1]+center[2]*cameraDir[2];
-      const horizonLimit=cameraDistance<=planetRadius?-.2:-Math.sqrt(Math.max(0,1-(planetRadius*planetRadius)/(cameraDistance*cameraDistance)))-.18;
-      if(horizonDot<horizonLimit&&level>1)return;
       const angularSpan=1.7*size;
       const projected=planetRadius*angularSpan/tileDistance*focal;
-      const key=face+":"+level+":"+x+":"+y;
-      const wasSplit=this.splitState.has(key);
-      const threshold=wasSplit?this.mergePixels:this.splitPixels;
-      const shouldSplit=level<this.maxLevel&&projected>threshold&&visible.length+4<this.maxTiles;
-      if(shouldSplit){
-        this.splitState.add(key);
-        const l=level+1,xx=x*2,yy=y*2;
-        visit(face,l,xx,yy);visit(face,l,xx+1,yy);visit(face,l,xx,yy+1);visit(face,l,xx+1,yy+1);
-      }else{
-        this.splitState.delete(key);
-        visible.push({face,level,x,y,u0,v0,size,projected,edgeMask:0});
-        maxSeen=Math.max(maxSeen,level);
-      }
+      return {face,level,x,y,u0,v0,size,projected,edgeMask:0};
     };
-    for(let f=0;f<6;f++)visit(f,0,0,0);
-    this.computeEdgeMasks(visible);
-    this.stats={tiles:visible.length,maxLevel:maxSeen,candidates};
-    return visible;
+
+    const leaves=[];
+    for(let face=0;face<6;face++)leaves.push(makeTile(face,0,0,0));
+
+    let budgetLimited=false;
+    while(true){
+      let bestIndex=-1;
+      let bestPriority=-Infinity;
+
+      for(let i=0;i<leaves.length;i++){
+        const t=leaves[i];
+        if(t.level>=this.maxLevel)continue;
+
+        const key=t.face+":"+t.level+":"+t.x+":"+t.y;
+        const wasSplit=this.splitState.has(key);
+        const threshold=wasSplit?this.mergePixels:this.splitPixels;
+        if(t.projected<=threshold){
+          this.splitState.delete(key);
+          continue;
+        }
+
+        const priority=t.projected/threshold;
+        if(priority>bestPriority){
+          bestPriority=priority;
+          bestIndex=i;
+        }
+      }
+
+      if(bestIndex<0)break;
+
+      // Replacing one parent with four children costs exactly +3 leaves.
+      // If the budget cannot afford that, keep the parent. Coverage is never dropped.
+      if(leaves.length+3>this.maxTiles){
+        budgetLimited=true;
+        break;
+      }
+
+      const parent=leaves[bestIndex];
+      const key=parent.face+":"+parent.level+":"+parent.x+":"+parent.y;
+      this.splitState.add(key);
+
+      const l=parent.level+1,xx=parent.x*2,yy=parent.y*2;
+      const children=[
+        makeTile(parent.face,l,xx,yy),
+        makeTile(parent.face,l,xx+1,yy),
+        makeTile(parent.face,l,xx,yy+1),
+        makeTile(parent.face,l,xx+1,yy+1)
+      ];
+
+      leaves.splice(bestIndex,1,...children);
+    }
+
+    this.computeEdgeMasks(leaves);
+
+    let maxSeen=0;
+    for(const t of leaves)maxSeen=Math.max(maxSeen,t.level);
+    this.stats={tiles:leaves.length,maxLevel:maxSeen,candidates,budgetLimited};
+    return leaves;
   }
+
   computeEdgeMasks(tiles){
     const sameLevel=new Set(tiles.map(t=>t.face+":"+t.level+":"+t.x+":"+t.y));
     for(const t of tiles){
       const n=1<<t.level;
       let mask=0;
-      // Skirts are only drawn on interior edges where the exact same-level neighbor
-      // is absent. Cube-face borders intentionally have no skirts to avoid two
-      // coincident skirts fighting each other at face seams.
+
+      // Only mixed-LOD interior borders receive skirts. Same-level neighbors meet
+      // vertex-for-vertex; cube-face borders remain skirt-free to avoid coincident walls.
       if(t.y>0&&!sameLevel.has(t.face+":"+t.level+":"+t.x+":"+(t.y-1)))mask|=1;
       if(t.x<n-1&&!sameLevel.has(t.face+":"+t.level+":"+(t.x+1)+":"+t.y))mask|=2;
       if(t.y<n-1&&!sameLevel.has(t.face+":"+t.level+":"+t.x+":"+(t.y+1)))mask|=4;
@@ -63,6 +109,7 @@ export class PlanetQuadtree{
       t.edgeMask=mask;
     }
   }
+
   toInstanceArray(tiles){
     const data=new Float32Array(tiles.length*8);
     for(let i=0;i<tiles.length;i++){
