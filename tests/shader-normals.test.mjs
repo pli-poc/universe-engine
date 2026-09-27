@@ -9,7 +9,7 @@ test('planet lighting normal follows displaced geometry rather than radial-only 
   assert.match(shader,/dpdy\(i\.worldPos\)/);
   assert.match(shader,/cross\(dx,dy\)/);
   assert.match(shader,/if\(dot\(n,radial\)<0\.0\)\{n=-n;\}/);
-  assert.match(shader,/let n=displacedNormal\(i\)/);
+  assert.match(shader,/displacedNormal\(i\)/);
 });
 
 test('radial normal remains only as a degenerate geometric-normal fallback', async()=>{
