@@ -5,6 +5,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: webgpu-regression-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   browser:
     runs-on: ubuntu-latest
@@ -17,14 +20,10 @@ jobs:
       - run: npm install --no-save --package-lock=false playwright@1.55.1 pngjs@7.0.0
       - run: npx playwright install --with-deps chromium
       - run: npm run check && npm run build
+      - name: Isolated shader probes
+        run: timeout 90 node scripts/gpu-probe.mjs
       - name: Local WebGPU render
-        run: node scripts/browser-smoke.mjs
-      - name: Inspect public deployment
         if: always()
-        continue-on-error: true
-        env:
-          ASTRAVA_BASE_URL: https://pli-poc.github.io/universe-engine/
-          ASTRAVA_TEST_NAME: public
         run: node scripts/browser-smoke.mjs
       - uses: actions/upload-artifact@v4
         if: always()
