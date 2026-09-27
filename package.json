@@ -5,7 +5,12 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "check": "node scripts/check.mjs"
+    "check": "node scripts/check.mjs",
+    "test:smoke": "node scripts/browser-smoke.mjs --profile=quick",
+    "test:browser": "node scripts/browser-smoke.mjs --profile=full",
+    "test:terrain": "node scripts/terrain-browser.mjs --group=all",
+    "check:site": "node scripts/ci/site-check.mjs"
   },
-  "engines": {"node": ">=20"}
+  "engines": { "node": ">=22" },
+  "devDependencies": { "playwright": "1.55.1", "pngjs": "7.0.0" }
 }

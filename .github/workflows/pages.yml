@@ -1,89 +1,95 @@
-name: Build and deploy Astrava
+name: Astrava CI and Pages
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
+    inputs:
+      force_full:
+        description: Run every regression group; cannot reduce automatic checks
+        type: boolean
+        default: false
+      publish:
+        description: Publish after validation (main only)
+        type: boolean
+        default: false
 permissions:
   contents: read
-  pages: write
-  id-token: write
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: astrava-ci-${{ github.event.pull_request.number || github.ref }}
+  # Do not interrupt an active main deployment with a newer push.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
-  build:
+  validate:
+    uses: ./.github/workflows/validation.yml
+    with:
+      force_full: ${{ inputs.force_full == true }}
+  deploy:
+    name: Publish the tested artifact
+    needs: validate
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true))
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      ASTRAVA_EXPECT_COMMIT: ${{ needs.validate.outputs.commit }}
+      ASTRAVA_ARCHIVE_SHA: ${{ needs.validate.outputs.archive_sha }}
+      ASTRAVA_MANIFEST_SHA: ${{ needs.validate.outputs.manifest_sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install --no-save --package-lock=false playwright@1.55.1 pngjs@7.0.0
-      - run: npx playwright install --with-deps chromium
-      - run: npm run check
-      - run: npm run build
-      - name: Verify actual WebGPU rendering before publishing
-        run: xvfb-run -a node scripts/browser-smoke.mjs
-      - name: Verify terrain seams and transitions before publishing
-        run: xvfb-run -a node scripts/terrain-browser.mjs
-      - uses: actions/upload-artifact@v4
-        if: always()
+      - uses: actions/download-artifact@v4
         with:
-          name: webgpu-browser-evidence
-          path: test-results/
-          retention-days: 7
+          name: astrava-site
+          path: .ci
+      - run: node scripts/ci/artifact.mjs unpack
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    needs: build
-    runs-on: ubuntu-latest
-    outputs:
-      page_url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy
-        id: deployment
+      - id: deployment
         uses: actions/deploy-pages@v4
   verify-published:
-    needs: deploy
+    name: Verify delivery (not full regression again)
+    needs: [validate, deploy]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
+    container:
+      image: mcr.microsoft.com/playwright:v1.55.1-noble
+      options: --ipc=host
+    timeout-minutes: 8
     env:
       ASTRAVA_BASE_URL: ${{ needs.deploy.outputs.page_url }}
-      ASTRAVA_EXPECT_COMMIT: ${{ github.sha }}
-      ASTRAVA_TEST_NAME: public
+      ASTRAVA_EXPECT_COMMIT: ${{ needs.validate.outputs.commit }}
+      ASTRAVA_MANIFEST_SHA: ${{ needs.validate.outputs.manifest_sha }}
+      ASTRAVA_TEST_NAME: published-delivery
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install --no-save --package-lock=false playwright@1.55.1 pngjs@7.0.0
-      - run: npx playwright install --with-deps chromium
-      - name: Wait for the exact build on Pages
-        shell: bash
-        run: |
-          for attempt in $(seq 1 36); do
-            if curl --max-time 15 -fsS "${ASTRAVA_BASE_URL}build-info.json?run=${GITHUB_RUN_ID}-${attempt}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.exit(JSON.parse(s).commit===process.env.ASTRAVA_EXPECT_COMMIT?0:1)}catch{process.exit(1)}})'; then
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "Published build did not become available" >&2
-          exit 1
-      - name: Fresh browser against published production shading
-        run: xvfb-run -a node scripts/browser-smoke.mjs
-      - name: Published terrain seam and transition coverage
-        run: xvfb-run -a node scripts/terrain-browser.mjs
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Check deployed identity and critical asset hashes
+        run: node scripts/ci/published.mjs
+      - name: Fresh browser, correct build, actual visible planet
+        run: xvfb-run -a node scripts/browser-smoke.mjs --profile=delivery
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: public-webgpu-evidence
+          name: published-delivery-evidence
           path: test-results/
           retention-days: 7
