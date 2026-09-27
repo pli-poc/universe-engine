@@ -65,8 +65,19 @@ fn stitchedPosition(input:VSIn)->vec4<f32>{
   if(all(input.sourceTile==input.targetTile)&&all(input.targetTile.xyz==input.tile.yzw)&&input.targetTile.w==input.tileMeta.w){p=stablePosition(input);}else{p=stitchedPosition(input);}
   o.position=u.viewProj*vec4<f32>(p.xyz,1);o.normal=normalize(p.xyz-u.centerRadius.xyz);o.worldPos=p.xyz;o.height=p.w;o.gridUV=input.grid.xy;return o;
 }
+fn displacedNormal(i:VSOut)->vec3<f32>{
+  let radial=normalize(i.normal);
+  let dx=dpdx(i.worldPos);
+  let dy=dpdy(i.worldPos);
+  let c=cross(dx,dy);
+  let l2=dot(c,c);
+  if(l2<1e-10){return radial;}
+  var n=c*inverseSqrt(l2);
+  if(dot(n,radial)<0.0){n=-n;}
+  return n;
+}
 @fragment fn fsMain(i:VSOut)->@location(0) vec4<f32>{
-  let n=normalize(i.normal);let l=normalize(u.sunDirExposure.xyz);let v=normalize(-i.worldPos);let ndl=max(dot(n,l),0.0);let h=i.height/max(u.timeRotationHeight.z,1.0);var base:vec3<f32>;
+  let n=displacedNormal(i);let l=normalize(u.sunDirExposure.xyz);let v=normalize(-i.worldPos);let ndl=max(dot(n,l),0.0);let h=i.height/max(u.timeRotationHeight.z,1.0);var base:vec3<f32>;
   if(h < -.02){base=vec3<f32>(.008,.055,.105);}else if(h < .04){base=vec3<f32>(.23,.20,.11);}else if(h < .28){base=mix(vec3<f32>(.055,.135,.068),vec3<f32>(.25,.22,.17),clamp(h*3.0,0.0,1.0));}else{base=mix(vec3<f32>(.25,.24,.22),vec3<f32>(.84,.88,.92),smoothstep(.35,.78,h));}
   let fres=pow(1.0-max(dot(n,v),0.0),4.0);let atmosphere=vec3<f32>(.08,.40,.82)*fres*(.25+ndl);var color=(base*(.032+ndl*1.18)+atmosphere*.34)*u.sunDirExposure.w;
   if(u.misc.z > .5){let edge=min(min(i.gridUV.x,1.0-i.gridUV.x),min(i.gridUV.y,1.0-i.gridUV.y));let width=max(fwidth(i.gridUV.x),fwidth(i.gridUV.y))*1.3;let line=1.0-smoothstep(0.0,width,edge);color=mix(color,vec3<f32>(.25,.7,1),line*.8);}
