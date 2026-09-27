@@ -43,7 +43,47 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     needs: build
     runs-on: ubuntu-latest
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
+  verify-published:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      ASTRAVA_BASE_URL: ${{ needs.deploy.outputs.page_url }}
+      ASTRAVA_EXPECT_COMMIT: ${{ github.sha }}
+      ASTRAVA_TEST_NAME: public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-save --package-lock=false playwright@1.55.1 pngjs@7.0.0
+      - run: npx playwright install --with-deps chromium
+      - name: Wait for the exact build on Pages
+        shell: bash
+        run: |
+          for attempt in $(seq 1 36); do
+            if curl --max-time 15 -fsS "${ASTRAVA_BASE_URL}build-info.json?run=${GITHUB_RUN_ID}-${attempt}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.exit(JSON.parse(s).commit===process.env.ASTRAVA_EXPECT_COMMIT?0:1)}catch{process.exit(1)}})'; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Published build did not become available" >&2
+          exit 1
+      - name: Fresh browser against published production shading
+        run: xvfb-run -a node scripts/browser-smoke.mjs
+      - name: Published terrain seam and transition coverage
+        run: xvfb-run -a node scripts/terrain-browser.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-webgpu-evidence
+          path: test-results/
+          retention-days: 7
