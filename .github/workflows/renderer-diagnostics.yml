@@ -12,6 +12,10 @@ jobs:
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    env:
+      ASTRAVA_BASE_URL: https://pli-poc.github.io/universe-engine/
+      ASTRAVA_TEST_NAME: public
+      ASTRAVA_EXPECT_COMMIT: 45dbaff41a8eedce4f4e497509277ad174c4537f
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,7 +24,20 @@ jobs:
       - run: npm install --no-save --package-lock=false playwright@1.55.1 pngjs@7.0.0
       - run: npx playwright install --with-deps chromium
       - run: npm run check && npm run build
-      - name: Local WebGPU render
+      - name: Wait for the tested revision on Pages
+        run: |
+          node --input-type=module <<'NODE'
+          const expected = process.env.ASTRAVA_EXPECT_COMMIT;
+          for (let attempt=0; attempt<30; attempt++) {
+            try {
+              const response=await fetch(process.env.ASTRAVA_BASE_URL+'build-info.json?verify='+Date.now(),{cache:'no-store'});
+              if(response.ok){const info=await response.json();if(info.commit===expected){console.log('PUBLIC_BUILD_CONFIRMED',info.commit);process.exit(0);}}
+            } catch(error) {console.log(error.message);}
+            await new Promise(resolve=>setTimeout(resolve,5000));
+          }
+          throw new Error('Expected revision is not yet served by Pages');
+          NODE
+      - name: Fresh browser on the public site
         run: xvfb-run -a node scripts/browser-smoke.mjs
       - uses: actions/upload-artifact@v4
         if: always()
