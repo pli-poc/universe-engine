@@ -1,7 +1,7 @@
 name: WebGPU browser regression
 on:
   push:
-    branches: [fix/planet-runtime]
+    branches: [fix/planet-runtime, feat/terrain-2b]
   workflow_dispatch:
 permissions:
   contents: read
@@ -11,7 +11,7 @@ concurrency:
 jobs:
   browser:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

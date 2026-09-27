@@ -1,9 +1,7 @@
-/** TypedArray writeBuffer sizes are elements, not bytes. Omit optional size. */
-export function uploadInstances(queue, buffer, instances, capacity) {
-  if (!(instances instanceof Float32Array) || instances.length % 8 !== 0) throw new TypeError('Tile instances must be a Float32Array of 8-float records');
-  const count = instances.length / 8;
-  if (count > capacity) throw new RangeError('Tile count exceeds GPU capacity');
-  if (!instances.every(Number.isFinite)) throw new Error('Non-finite tile metadata');
-  if (count) queue.writeBuffer(buffer, 0, instances);
-  return count;
+/** For TypedArrays the optional writeBuffer size is in elements. Omit it. */
+export function uploadInstances(queue,buffer,instances,capacity,stride=8){
+  if(!Number.isInteger(stride)||stride<1||!(instances instanceof Float32Array)||instances.length%stride)throw new TypeError('Invalid tile instance record layout');
+  const count=instances.length/stride;if(count>capacity)throw new RangeError('Tile count exceeds GPU capacity');
+  if(!instances.every(Number.isFinite))throw new Error('Non-finite tile metadata');
+  if(count)queue.writeBuffer(buffer,0,instances);return count;
 }
