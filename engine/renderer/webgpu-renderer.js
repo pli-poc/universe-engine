@@ -22,12 +22,12 @@ export class WebGPURenderer {
     const mesh=createPatchGrid(PATCH_RESOLUTION);this.indexCount=mesh.indices.length;
     const makeBuffer=(label,data,usage)=>{const b=this.device.createBuffer({label,size:data.byteLength,usage:usage|GPUBufferUsage.COPY_DST});this.device.queue.writeBuffer(b,0,data);return b;};
     this.vertexBuffer=makeBuffer('Surface-only patch vertices',mesh.vertices,GPUBufferUsage.VERTEX);this.indexBuffer=makeBuffer('Outward CCW patch indices',mesh.indices,GPUBufferUsage.INDEX);
-    this.uniformBuffer=this.device.createBuffer({label:'Planet uniforms',size:128,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+    this.uniformBuffer=this.device.createBuffer({label:'Planet uniforms',size:144,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
     this.instanceBuffer=this.device.createBuffer({label:'Terrain transition instances',size:this.instanceCapacity*RENDER_INSTANCE_FLOATS*4,usage:GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST});
     this.pipeline=await this.device.createRenderPipelineAsync({label:'Astrava stitched terrain reverse-Z',layout:'auto',
       vertex:{module,entryPoint:'vsMain',buffers:[
         {arrayStride:16,stepMode:'vertex',attributes:[{shaderLocation:0,offset:0,format:'float32x4'}]},
-        {arrayStride:RENDER_INSTANCE_FLOATS*4,stepMode:'instance',attributes:[{shaderLocation:1,offset:0,format:'float32x4'},{shaderLocation:2,offset:16,format:'float32x4'},{shaderLocation:3,offset:32,format:'float32x4'},{shaderLocation:4,offset:48,format:'float32x4'}]},
+        {arrayStride:RENDER_INSTANCE_FLOATS*4,stepMode:'instance',attributes:[{shaderLocation:1,offset:0,format:'float32x4'},{shaderLocation:2,offset:16,format:'float32x4'},{shaderLocation:3,offset:32,format:'float32x4'},{shaderLocation:4,offset:48,format:'float32x4'},{shaderLocation:5,offset:64,format:'float32x4'}]},
       ]},fragment:{module,entryPoint:'fsMain',targets:[{format:this.format}]},primitive:{topology:'triangle-list',cullMode:'back',frontFace:'ccw'},depthStencil:{format:'depth32float',depthWriteEnabled:true,depthCompare:'greater'}});
     this.bindGroup=this.device.createBindGroup({layout:this.pipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.uniformBuffer}}]});
     this.resize();this.resizeObserver=new ResizeObserver(()=>{try{this.resize();}catch(e){this.fail(e);}});this.resizeObserver.observe(canvas);if(this.error)throw this.error;
@@ -42,7 +42,7 @@ export class WebGPURenderer {
   }
   render(uniforms,instances){
     if(this.error)throw this.error;if(this.disposed)throw new Error('Renderer is disposed');if(this.inFlight>=2)throw new Error('GPU frame queue is saturated');
-    if(!(uniforms instanceof Float32Array)||uniforms.length!==32||!uniforms.every(Number.isFinite))throw new Error('Invalid planet uniforms');
+    if(!(uniforms instanceof Float32Array)||uniforms.length!==36||!uniforms.every(Number.isFinite))throw new Error('Invalid planet uniforms');
     this.resize();this.device.queue.writeBuffer(this.uniformBuffer,0,uniforms);
     const count=uploadInstances(this.device.queue,this.instanceBuffer,instances,this.instanceCapacity,RENDER_INSTANCE_FLOATS);
     const encoder=this.device.createCommandEncoder({label:'Planet frame'}),pass=encoder.beginRenderPass({

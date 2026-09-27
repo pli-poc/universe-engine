@@ -1,5 +1,5 @@
 import { tileAt, childrenOf, coveringLeaf, setStitchMasks } from './topology.js';
-export const RENDER_INSTANCE_FLOATS=16;
+export const RENDER_INSTANCE_FLOATS=20;
 export const PATCH_RESOLUTION=32;
 const signature=tiles=>tiles.map(t=>`${t.key}/${t.edgeMask}`).sort().join('|');
 /** Common refinement: draw neither overlapping parents/children nor incomplete branches. */
@@ -8,7 +8,7 @@ export function transitionCut(from,to){
   function visit(t){const source=coveringLeaf(a,t),target=coveringLeaf(b,t);if(source&&target){result.push({...t,source,target});return;}if(t.level>=20)throw new Error('Incomplete transition cut');for(const child of childrenOf(t))visit(child);}
   for(let face=0;face<6;face++)visit(tileAt(face,0,0,0));return setStitchMasks(result);
 }
-export function renderInstances(tiles){const data=new Float32Array(tiles.length*RENDER_INSTANCE_FLOATS);tiles.forEach((t,i)=>{const a=t.source||t,b=t.target||t;data.set([t.face,t.u0,t.v0,t.size,t.level,t.x,t.y,t.edgeMask,a.u0,a.v0,a.size,a.edgeMask,b.u0,b.v0,b.size,b.edgeMask],i*RENDER_INSTANCE_FLOATS);});return data;}
+export function renderInstances(tiles,anchorForTile){const data=new Float32Array(tiles.length*RENDER_INSTANCE_FLOATS);tiles.forEach((t,i)=>{const a=t.source||t,b=t.target||t,anchor=anchorForTile?anchorForTile(t):[0,0,0,0];if(anchor.length!==4||!anchor.every(Number.isFinite))throw new Error('Invalid tile anchor');data.set([t.face,t.u0,t.v0,t.size,t.level,t.x,t.y,t.edgeMask,a.u0,a.v0,a.size,a.edgeMask,b.u0,b.v0,b.size,b.edgeMask,...anchor],i*RENDER_INSTANCE_FLOATS);});return data;}
 export class TerrainTransitions {
   constructor({duration=.35,capacity=4096}={}){if(!(duration>0)||!Number.isFinite(duration)||!Number.isInteger(capacity)||capacity<6)throw new RangeError('Invalid transition limits');Object.assign(this,{duration,capacity});this.current=null;this.active=false;this.alpha=1;this.revision=0;this.blocked=false;}
   offer(tiles){

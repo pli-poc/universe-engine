@@ -117,7 +117,7 @@ export async function harness({ coverage = false, width = 960, height = 720, nam
     results.push(record); console.log('RENDER_CHECK',JSON.stringify(record));
     try {
       if (coverage) assert.ok(record.coverage>.999, `${label}: missing terrain, coverage=${record.coverage}`);
-      else if (kind==='near') { assert.ok(record.coverage>.99,`${label}: missing near-orbit terrain`); assert.ok(colors.size>16,'Unshaded/blank close view'); }
+      else if (kind==='near') { assert.ok(record.coverage>.90,`${label}: close view is mostly background/dark`); assert.ok(record.fraction>.75,'Close view did not fill enough of the frame'); assert.ok(colors.size>128,'Unshaded/blank close view'); }
       else { assert.ok(record.fraction>.01 && record.fraction<.9,'Planet missing against space'); assert.ok(colors.size>64,'Blank or unshaded orbit view'); }
     } catch(error) { await writeFile(`${output}/${label}-failure.png`,bytes); throw error; }
     if (save || process.env.ASTRAVA_SCREENSHOTS==='all') await writeFile(`${output}/${label}.png`,bytes);
