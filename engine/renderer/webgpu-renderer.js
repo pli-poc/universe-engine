@@ -4,7 +4,7 @@ import { uploadInstances } from './buffer-upload.js';
 export class WebGPURenderer {
   constructor({onError=()=>{}}={}){this.onError=onError;this.error=null;this.instanceCapacity=4096;this.disposed=false;this.inFlight=0;}
   get canRender(){return !this.error&&!this.disposed&&this.inFlight<2;}
-  fail(error){if(this.disposed||this.error)return;this.error=error instanceof Error?error:new Error(String(error));this.onError(this.error);}
+  fail(error){if(this.disposed||this.error)return;this.error=error instanceof Error?error:new Error(error?.message||String(error));this.onError(this.error);}
   async init(canvas){
     this.gpu=navigator.gpu;if(!this.gpu)throw new Error('WebGPU is unavailable. Use an HTTPS page and a WebGPU-capable browser.');
     this.canvas=canvas;this.adapter=await this.gpu.requestAdapter({powerPreference:'high-performance'});
