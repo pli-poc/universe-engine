@@ -1,0 +1,17 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Architecture · Astrava Docs</title><link rel="stylesheet" href="../src/styles.css"></head><body><header class="site-header"><nav class="nav"><a class="brand" href="../index.html"><img src="../assets/astrava-logo.svg" alt="Astrava"></a><div class="nav-links"><a href="../index.html">Universe</a><a href="../technology.html">Technology</a><a href="../worlds.html">Worlds</a><a href="index.html">Docs</a></div><a class="nav-cta" href="roadmap.html">Build plan →</a></nav></header><main><section class="section"><div class="wrap docs-layout"><aside class="docs-nav"><strong style="display:block;padding:8px 9px 12px">Astrava Engine</strong><a  href="index.html">Overview</a><a class="active" href="architecture.html">Architecture</a><a  href="rendering.html">Rendering</a><a  href="planets.html">Planet system</a><a  href="atmosphere.html">Atmosphere & stars</a><a  href="streaming.html">Streaming & persistence</a><a  href="physics.html">Physics & simulation</a><a  href="roadmap.html">Roadmap & validation</a></aside><article class="doc"><span class="status">HLD</span><h1>Architecture & coordinate model</h1><p class="lead">Astrava separates authoritative simulation coordinates from render coordinates.</p><h2>Reference-frame hierarchy</h2><div class="diagram">UniverseFrame (Float64)
+└─ StarSystemFrame
+   ├─ StarFrame
+   └─ PlanetOrbitalFrame
+      └─ PlanetRotatingFrame
+         └─ SurfaceFrame
+            └─ LocalPhysicsFrame
+               └─ Camera-relative RenderFrame (Float32)</div><p>A surface building remains defined in its rotating planet frame. The planet transform changes; the building does not need an astronomical position rewrite every frame.</p><h2>Precision contract</h2><div class="table-wrap"><table><thead><tr><th>Domain</th><th>Representation</th><th>Purpose</th></tr></thead><tbody><tr><td>Universe / orbit</td><td>Float64</td><td>Authoritative position/time</td></tr><tr><td>Planet-local</td><td>Float64</td><td>Stable coordinates/tile address</td></tr><tr><td>GPU render</td><td>Float32 camera-relative</td><td>Near-camera precision</td></tr></tbody></table></div><h2>Frame transition</h2><pre>absolute = sourceFrame.toUniverse(localState)
+local' = targetFrame.fromUniverse(absolute)</pre><h2>Future package model</h2><div class="diagram">packages/
+  math/
+  universe/
+  renderer/
+  planet/
+  atmosphere/
+  simulation/
+  persistence/
+  game/</div></article></div></section></main></body></html>
