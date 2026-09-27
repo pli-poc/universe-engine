@@ -1,6 +1,5 @@
-/** Geometry-only regression using the production vertex shader. The fragment
- * entry point is replaced by a coverage color; production shading has its own test.
- */
+/** Production vertex shader plus flat fragment coverage color. Production shading
+ * is tested separately, so dark oceans/night-side terrain cannot mimic holes. */
 import {chromium} from 'playwright';
 import {PNG} from 'pngjs';
 import {createServer} from 'node:http';
@@ -12,16 +11,16 @@ await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const base=process.env.ASTRAVA_BASE_URL||`http://127.0.0.1:${server.address().port}/`,expected=process.env.ASTRAVA_EXPECT_COMMIT||process.env.GITHUB_SHA;
 await mkdir('test-results/terrain',{recursive:true});
 const browser=await chromium.launch({headless:false,args:['--enable-gpu','--enable-unsafe-webgpu','--enable-unsafe-swiftshader','--enable-features=Vulkan','--use-vulkan=swiftshader','--use-angle=swiftshader','--use-webgpu-adapter=swiftshader','--disable-vulkan-surface','--no-sandbox']});
-const page=await browser.newPage({viewport:{width:640,height:560},deviceScaleFactor:1});const failures=[],results=[];
+const page=await browser.newPage({viewport:{width:640,height:560},deviceScaleFactor:1});page.setDefaultTimeout(90000);const failures=[],results=[];
 await page.route('**/planet.wgsl',async route=>{const response=await route.fetch(),source=await response.text();assert.ok(source.includes('@fragment fn fsMain'));const shader=source.replace(/@fragment fn fsMain[\s\S]*$/,'@fragment fn fsMain(i:VSOut)->@location(0) vec4<f32>{return vec4<f32>(.85,.85,.85,1.0);}');await route.fulfill({response,body:shader});});
 page.on('pageerror',e=>failures.push(e.message));
-await page.addInitScript(()=>{window.__gpuErrors=[];if(typeof GPUAdapter==='undefined')return;const original=GPUAdapter.prototype.requestDevice;GPUAdapter.prototype.requestDevice=async function(...args){const d=await original.apply(this,args);d.addEventListener('uncapturederror',e=>window.__gpuErrors.push(e.error.message));d.lost.then(i=>{if(i.reason!=='destroyed')window.__gpuErrors.push(i.message);});return d;};});
+await page.addInitScript(()=>{window.__gpuErrors=[];if(typeof GPUAdapter==='undefined')return;const original=GPUAdapter.prototype.requestDevice;GPUAdapter.prototype.requestDevice=async function(...args){const d=await original.apply(this,args);window.__testGPUDevice=d;d.addEventListener('uncapturederror',e=>window.__gpuErrors.push(e.error.message));d.lost.then(i=>{if(i.reason!=='destroyed')window.__gpuErrors.push(i.message);});return d;};});
 async function frame(label){
  const before=await page.evaluate(()=>window.__astravaDiagnostics.frames);
  await page.waitForFunction(n=>window.__astravaDiagnostics.state==='error'||window.__astravaDiagnostics.frames>=n+2,before,{timeout:90000});
- const s=await page.evaluate(()=>({...window.__astravaDiagnostics,errors:window.__gpuErrors}));
- assert.equal(s.state,'running',s.error||'Renderer not running');assert.equal(s.errors.length,0,s.errors.join('\n'));assert.equal(failures.length,0,failures.join('\n'));if(expected)assert.equal(s.build,expected);assert.ok(s.tiles<=s.drawCapacity);assert.ok(s.logicalTiles<=s.cutBudget);
- const bytes=await page.locator('#astrava-canvas').screenshot({timeout:90000}),png=PNG.sync.read(bytes);let visible=0;
+ await page.evaluate(async()=>{if(window.__astravaDiagnostics.state==='running')await window.__testGPUDevice.queue.onSubmittedWorkDone();});
+ const s=await page.evaluate(()=>({...window.__astravaDiagnostics,errors:window.__gpuErrors}));assert.equal(s.state,'running',s.error||'Renderer not running');assert.equal(s.errors.length,0,s.errors.join('\n'));assert.equal(failures.length,0,failures.join('\n'));if(expected)assert.equal(s.build,expected);assert.ok(s.tiles<=s.drawCapacity);assert.ok(s.logicalTiles<=s.cutBudget);assert.ok(s.inFlight<=2);
+ const clip=await page.locator('#astrava-canvas').boundingBox();assert.ok(clip&&clip.width>0&&clip.height>0);const bytes=await page.screenshot({clip,timeout:90000}),png=PNG.sync.read(bytes);let visible=0;
  for(let i=0;i<png.data.length;i+=4)if(png.data[i]>128&&png.data[i+1]>128&&png.data[i+2]>128)visible++;
  const coverage=visible/(png.width*png.height);assert.ok(coverage>.999,`${label}: coverage ${coverage}`);
  const r={label,coverage,tiles:s.tiles,logical:s.logicalTiles,morph:s.morph};results.push(r);console.log('TERRAIN_FRAME',JSON.stringify(r));await writeFile(`test-results/terrain/${label}.png`,bytes);
@@ -29,7 +28,7 @@ async function frame(label){
 async function pose(label,direction,altitude=333000,alphas=[1]){const active=await page.evaluate(p=>window.__astravaDebug.transitionTo(p),{direction,altitude});for(const alpha of alphas){if(active)await page.evaluate(a=>window.__astravaDebug.setMorph(a),alpha);await frame(`${label}-${alpha}`);}}
 let failure;
 try{
- await page.goto(base+'demo.html?diagnostics&lodBudget=96',{waitUntil:'networkidle',timeout:90000});await page.waitForFunction(()=>window.__astravaDiagnostics?.state==='running',{timeout:90000});
+ await page.goto(base+'demo.html?diagnostics&lodBudget=96',{waitUntil:'networkidle',timeout:90000});await page.waitForFunction(()=>window.__astravaDiagnostics?.state==='running',null,{timeout:90000});
  await page.addStyleTag({content:'.engine-hud,.site-header,.engine-fallback{visibility:hidden!important}'});
  await pose('morph',[-1,.14,1],333000,[0,.1,.2,.3,.4,.5,.6,.7,.8,.9,1]);
  let edge=0;
