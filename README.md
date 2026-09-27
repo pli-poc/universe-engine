@@ -18,7 +18,7 @@ Phase 2 planetary geometry is now underway. The live `demo.html` includes:
 - directional stellar lighting and first-pass atmosphere rim
 - free-flight controls and live tile/LOD diagnostics
 
-The selector intentionally runs on the CPU first. Its tile metadata format is already suitable for a later compute-driven visibility/indirect-draw path.
+The selector intentionally runs on the CPU first. Its tile metadata format is already suitable for a later compute-driven visibility/indirect-draw path. Instance uploads use explicit byte counts so all selected tile metadata reaches WebGPU each frame.
 
 ## Run locally
 

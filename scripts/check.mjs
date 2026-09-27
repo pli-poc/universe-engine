@@ -6,4 +6,6 @@ const js=['engine/main.js','engine/renderer/webgpu-renderer.js','engine/universe
 for(const p of js){const r=spawnSync(process.execPath,['--check',p],{encoding:'utf8'});if(r.status!==0)throw new Error(r.stderr||('syntax check failed: '+p));}
 const shader=await readFile('engine/renderer/shaders/planet.wgsl','utf8');for(const token of ['@vertex','@fragment','cubePoint','tileMeta','edgeMask'])if(!shader.includes(token))throw new Error('WGSL token missing: '+token);
 const qt=await readFile('engine/planet/quadtree.js','utf8');if(!qt.includes('splitPixels')||!qt.includes('Coverage is never dropped')||!qt.includes('computeEdgeMasks'))throw new Error('quadtree selection incomplete');
-console.log('Astrava structural, JS, quadtree and shader checks passed.');
+const renderer=await readFile('engine/renderer/webgpu-renderer.js','utf8');
+if(!renderer.includes('Float32Array.BYTES_PER_ELEMENT'))throw new Error('instance uploads must use byte counts');
+console.log('Astrava structural, JS, quadtree, buffer upload and shader checks passed.');
