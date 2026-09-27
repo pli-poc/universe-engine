@@ -1,4 +1,3 @@
-
 import {faceDirection} from "./cube-sphere.js";
 
 function rotateYInverse(v,a){
@@ -8,7 +7,7 @@ function rotateYInverse(v,a){
 function distance3(a,b){return Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2])}
 
 export class PlanetQuadtree{
-  constructor({maxLevel=12,splitPixels=190,mergePixels=125,maxTiles=4096}={}){
+  constructor({maxLevel=12,splitPixels=230,mergePixels=135,maxTiles=4096}={}){
     this.maxLevel=maxLevel;this.splitPixels=splitPixels;this.mergePixels=mergePixels;this.maxTiles=maxTiles;
     this.splitState=new Set();this.stats={tiles:0,maxLevel:0,candidates:0};
   }
@@ -40,20 +39,36 @@ export class PlanetQuadtree{
         visit(face,l,xx,yy);visit(face,l,xx+1,yy);visit(face,l,xx,yy+1);visit(face,l,xx+1,yy+1);
       }else{
         this.splitState.delete(key);
-        visible.push({face,level,x,y,u0,v0,size,projected});
+        visible.push({face,level,x,y,u0,v0,size,projected,edgeMask:0});
         maxSeen=Math.max(maxSeen,level);
       }
     };
     for(let f=0;f<6;f++)visit(f,0,0,0);
+    this.computeEdgeMasks(visible);
     this.stats={tiles:visible.length,maxLevel:maxSeen,candidates};
     return visible;
+  }
+  computeEdgeMasks(tiles){
+    const sameLevel=new Set(tiles.map(t=>t.face+":"+t.level+":"+t.x+":"+t.y));
+    for(const t of tiles){
+      const n=1<<t.level;
+      let mask=0;
+      // Skirts are only drawn on interior edges where the exact same-level neighbor
+      // is absent. Cube-face borders intentionally have no skirts to avoid two
+      // coincident skirts fighting each other at face seams.
+      if(t.y>0&&!sameLevel.has(t.face+":"+t.level+":"+t.x+":"+(t.y-1)))mask|=1;
+      if(t.x<n-1&&!sameLevel.has(t.face+":"+t.level+":"+(t.x+1)+":"+t.y))mask|=2;
+      if(t.y<n-1&&!sameLevel.has(t.face+":"+t.level+":"+t.x+":"+(t.y+1)))mask|=4;
+      if(t.x>0&&!sameLevel.has(t.face+":"+t.level+":"+(t.x-1)+":"+t.y))mask|=8;
+      t.edgeMask=mask;
+    }
   }
   toInstanceArray(tiles){
     const data=new Float32Array(tiles.length*8);
     for(let i=0;i<tiles.length;i++){
       const t=tiles[i],o=i*8;
       data[o]=t.face;data[o+1]=t.u0;data[o+2]=t.v0;data[o+3]=t.size;
-      data[o+4]=t.level;data[o+5]=t.x;data[o+6]=t.y;data[o+7]=0;
+      data[o+4]=t.level;data[o+5]=t.x;data[o+6]=t.y;data[o+7]=t.edgeMask;
     }
     return data;
   }

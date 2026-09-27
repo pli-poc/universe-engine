@@ -1,4 +1,3 @@
-
 struct Uniforms {
   viewProj : mat4x4<f32>,
   centerRadius : vec4<f32>,
@@ -9,7 +8,7 @@ struct Uniforms {
 @group(0) @binding(0) var<uniform> u : Uniforms;
 
 struct VSIn {
-  @location(0) grid : vec3<f32>,
+  @location(0) grid : vec4<f32>,
   @location(1) tile : vec4<f32>,
   @location(2) tileMeta : vec4<f32>,
 };
@@ -65,7 +64,14 @@ fn rotateY(p:vec3<f32>,a:f32)->vec3<f32>{
   let uv=vec2<f32>(input.tile.y,input.tile.z)+input.grid.xy*input.tile.w;
   let d=normalize(cubePoint(input.tile.x,uv));
   let h=terrain(d);
-  let skirt=input.grid.z*(max(80.0,u.timeRotationHeight.z*.035)+input.tile.w*u.centerRadius.w*.002);
+
+  let edgeMask=u32(max(input.tileMeta.w,0.0)+0.5);
+  let edgeId=u32(max(input.grid.w,0.0)+0.5);
+  let edgeBit=1u<<edgeId;
+  let skirtEnabled=input.grid.z>0.5&&((edgeMask&edgeBit)!=0u);
+  let skirtDepth=max(80.0,u.timeRotationHeight.z*.035)+input.tile.w*u.centerRadius.w*.002;
+  let skirt=select(0.0,skirtDepth,skirtEnabled);
+
   let rd=rotateY(d,u.timeRotationHeight.y);
   let world=u.centerRadius.xyz+rd*(u.centerRadius.w+h-skirt);
   o.position=u.viewProj*vec4<f32>(world,1.0);

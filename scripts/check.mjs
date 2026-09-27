@@ -4,6 +4,6 @@ const required=['index.html','technology.html','worlds.html','media.html','about
 for(const p of required)await stat(p);
 const js=['engine/main.js','engine/renderer/webgpu-renderer.js','engine/universe/system.js','engine/universe/reference-frame.js','engine/math/vec3.js','engine/math/mat4.js','engine/planet/cube-sphere.js','engine/planet/quadtree.js','engine/planet/patch-grid.js','engine/camera/free-camera.js'];
 for(const p of js){const r=spawnSync(process.execPath,['--check',p],{encoding:'utf8'});if(r.status!==0)throw new Error(r.stderr||('syntax check failed: '+p));}
-const shader=await readFile('engine/renderer/shaders/planet.wgsl','utf8');for(const token of ['@vertex','@fragment','cubePoint','tileMeta'])if(!shader.includes(token))throw new Error('WGSL token missing: '+token);
-const qt=await readFile('engine/planet/quadtree.js','utf8');if(!qt.includes('splitPixels')||!qt.includes('horizon'))throw new Error('quadtree selection incomplete');
+const shader=await readFile('engine/renderer/shaders/planet.wgsl','utf8');for(const token of ['@vertex','@fragment','cubePoint','tileMeta','edgeMask'])if(!shader.includes(token))throw new Error('WGSL token missing: '+token);
+const qt=await readFile('engine/planet/quadtree.js','utf8');if(!qt.includes('splitPixels')||!qt.includes('horizon')||!qt.includes('computeEdgeMasks'))throw new Error('quadtree selection incomplete');
 console.log('Astrava structural, JS, quadtree and shader checks passed.');

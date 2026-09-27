@@ -19,7 +19,7 @@ export class WebGPURenderer{
     this.pipeline=this.device.createRenderPipeline({
       layout:"auto",
       vertex:{module,entryPoint:"vsMain",buffers:[
-        {arrayStride:12,stepMode:"vertex",attributes:[{shaderLocation:0,offset:0,format:"float32x3"}]},
+        {arrayStride:16,stepMode:"vertex",attributes:[{shaderLocation:0,offset:0,format:"float32x4"}]},
         {arrayStride:32,stepMode:"instance",attributes:[
           {shaderLocation:1,offset:0,format:"float32x4"},
           {shaderLocation:2,offset:16,format:"float32x4"}
