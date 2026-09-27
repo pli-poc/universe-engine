@@ -61,17 +61,24 @@ async function assertRendered(label, near=false) {
   await overlay.evaluate(element=>element.remove());
   await writeFile(`test-results/${name}-${label}-canvas.png`,pngBytes);
   const png=PNG.sync.read(pngBytes), bg=[...png.data.slice(0,3)], colors=new Set();
-  let foreground=0;
+  let foreground=0, nonClear=0;
   for(let i=0;i<png.data.length;i+=4){
     if(Math.max(Math.abs(png.data[i]-bg[0]),Math.abs(png.data[i+1]-bg[1]),Math.abs(png.data[i+2]-bg[2]))>8)foreground++;
+    if(Math.max(Math.abs(png.data[i]),Math.abs(png.data[i+1]-1),Math.abs(png.data[i+2]-2))>2)nonClear++;
     colors.add((png.data[i]<<16)|(png.data[i+1]<<8)|png.data[i+2]);
   }
-  const fraction=foreground/(png.width*png.height);
-  const pixels={width:png.width,height:png.height,bg,foreground,fraction,colors:colors.size};
+  const fraction=foreground/(png.width*png.height), coverage=nonClear/(png.width*png.height);
+  const pixels={width:png.width,height:png.height,bg,foreground,fraction,coverage,colors:colors.size};
   console.log('RENDER_PIXELS:',label,JSON.stringify(pixels));
-  assert.ok(colors.size>64,'Canvas must contain shaded terrain, not a uniform blank image');
-  assert.ok(fraction>.01,'Planet must occupy visible pixels');
-  if(!near)assert.ok(fraction<.9,'Orbit view must show a planet against space');
+  if(near){
+    // Nadir at 333 km fills this field of view. An ocean-only view can have few
+    // quantized colors; require actual coverage and shading, not arbitrary land diversity.
+    assert.ok(coverage>.99,'Near-orbit planet must cover the viewport without large missing tiles');
+    assert.ok(colors.size>16,'Near-orbit surface must be shaded, not a constant fill');
+  }else{
+    assert.ok(colors.size>64,'Orbit view must contain a shaded planet');
+    assert.ok(fraction>.01 && fraction<.9,'Visible planet against space, not a blank or full-screen error');
+  }
   results.push({label,state,pixels});
   await writeFile(`test-results/${name}-state.json`,JSON.stringify({results,events,runtimeRequests},null,2));
 }
