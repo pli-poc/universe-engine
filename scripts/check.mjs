@@ -7,5 +7,5 @@ for(const p of js){const r=spawnSync(process.execPath,['--check',p],{encoding:'u
 const shader=await readFile('engine/renderer/shaders/planet.wgsl','utf8');for(const token of ['@vertex','@fragment','cubePoint','tileMeta','edgeMask'])if(!shader.includes(token))throw new Error('WGSL token missing: '+token);
 const qt=await readFile('engine/planet/quadtree.js','utf8');if(!qt.includes('splitPixels')||!qt.includes('Coverage is never dropped')||!qt.includes('computeEdgeMasks'))throw new Error('quadtree selection incomplete');
 const renderer=await readFile('engine/renderer/webgpu-renderer.js','utf8');
-if(!renderer.includes('Float32Array.BYTES_PER_ELEMENT'))throw new Error('instance uploads must use byte counts');
-console.log('Astrava structural, JS, quadtree, buffer upload and shader checks passed.');
+if(!renderer.includes('subarray(0,instanceCount*8)'))throw new Error('instance upload must use an exact typed-array view');
+console.log('Astrava structural, JS, quadtree, safe instance upload and shader checks passed.');

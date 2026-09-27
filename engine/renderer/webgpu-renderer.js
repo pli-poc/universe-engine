@@ -45,7 +45,7 @@ export class WebGPURenderer{
     this.resize();
     const instanceCount=Math.min(this.instanceCapacity,instanceFloats.length/8);
     this.device.queue.writeBuffer(this.uniformBuffer,0,uniformFloats);
-    if(instanceCount){const bytes=instanceCount*8*Float32Array.BYTES_PER_ELEMENT;this.device.queue.writeBuffer(this.instanceBuffer,0,instanceFloats,0,bytes);}
+    if(instanceCount){const view=instanceFloats.subarray(0,instanceCount*8);this.device.queue.writeBuffer(this.instanceBuffer,0,view);}
     const encoder=this.device.createCommandEncoder();
     const pass=encoder.beginRenderPass({
       colorAttachments:[{view:this.context.getCurrentTexture().createView(),clearValue:{r:.0015,g:.004,b:.008,a:1},loadOp:"clear",storeOp:"store"}],
