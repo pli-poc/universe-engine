@@ -2,13 +2,13 @@
 
 A WebGPU-native procedural universe prototype. `demo.html` is the live entry; the product website and engine documentation publish through GitHub Pages.
 
-## Phase 2B: seam-safe terrain
+## Phase 2C: surface realism
 
 Implemented: Float64 coordinates, rotating reference frames, camera-relative rendering, reverse-Z depth, budget-bounded cube-sphere cuts, cross-face neighbours, atomic 2:1 balancing, geometric stitching without skirts, coordinated source/target morphing, outward winding/backface culling, and version-isolated scripts/shaders with visible GPU errors.
 
 The CPU selector uses projected patch footprint, not a certified geometric-error bound. Horizon culling is not active. Logical cuts default to 1,536 tiles; transitions have a separate 4,096-instance capacity and morph over 0.35 simulation seconds.
 
-The environment remains a prototype: rim-light atmosphere, seeded fractal terrain, screen-space geometric normals from the displaced terrain and blue low terrain rather than a separate ocean. No landing physics or centimetre-scale surface precision is claimed.
+Phase 2C now adds per-tile camera-relative anchors for substantially better low-altitude vertex precision, displaced geometric normals, procedural material weights/roughness, a dielectric GGX PBR response, multi-scale procedural surface detail, linear HDR lighting with ACES-style tone mapping, debug views, and a conservative terrain-clearance guard. The atmosphere is still a rim approximation and low terrain is not yet a separate ocean. This is improved rendering precision, not a centimetre-precision or landing-physics claim.
 
 ## Development
 
@@ -51,4 +51,4 @@ On a desktop display omit `xvfb-run -a`. Build first. `ASTRAVA_SCREENSHOTS=all` 
 - [Build, test and publish: complete pipeline](docs/pipeline.html)
 - [Renderer recovery findings](docs/rendering-recovery.md)
 
-Phase 2C has started with displaced-terrain geometric lighting normals. Next: tile-local close-up precision, procedural PBR material response, physical atmosphere and actual generated-tile caching.
+Phase 2C surface realism is implemented as a baseline. Next: physical atmosphere/starlight, then a separate ocean surface, followed by generated-tile residency/caching and richer geological synthesis.
