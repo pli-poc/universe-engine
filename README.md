@@ -8,7 +8,7 @@ Implemented: Float64 coordinates, rotating reference frames, camera-relative ren
 
 The CPU selector uses projected patch footprint, not a certified geometric-error bound. Horizon culling is not active. Logical cuts default to 1,536 tiles; transitions have a separate 4,096-instance capacity and morph over 0.35 simulation seconds.
 
-The environment remains a prototype: rim-light atmosphere, seeded fractal terrain, radial normals and blue low terrain rather than a separate ocean. No landing physics or centimetre-scale surface precision is claimed.
+The environment remains a prototype: rim-light atmosphere, seeded fractal terrain, screen-space geometric normals from the displaced terrain and blue low terrain rather than a separate ocean. No landing physics or centimetre-scale surface precision is claimed.
 
 ## Development
 
@@ -51,4 +51,4 @@ On a desktop display omit `xvfb-run -a`. Build first. `ASTRAVA_SCREENSHOTS=all` 
 - [Build, test and publish: complete pipeline](docs/pipeline.html)
 - [Renderer recovery findings](docs/rendering-recovery.md)
 
-Next engine layers remain close-up precision/shading, physical atmosphere and actual generated-tile caching. This CI update does not change the renderer.
+Phase 2C has started with displaced-terrain geometric lighting normals. Next: tile-local close-up precision, procedural PBR material response, physical atmosphere and actual generated-tile caching.
