@@ -1,0 +1,121 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pipeline · Astrava Docs</title><link rel="stylesheet" href="../src/styles.css"></head><body><header class="site-header"><nav class="nav"><a class="brand" href="../index.html"><img src="../assets/astrava-logo.svg" alt="Astrava"></a><div class="nav-links"><a href="../demo.html">Engine demo</a><a href="index.html">Docs</a><a href="roadmap.html">Roadmap</a></div></nav></header><main><section class="section"><div class="wrap docs-layout"><aside class="docs-nav"><strong>Astrava / CI and delivery</strong><a href="index.html">Engine documentation</a><a href="#flow">End-to-end flow</a><a href="#triggers">Triggers</a><a href="#selection">Test selection</a><a href="#checks">Test levels</a><a href="#frames">Frame stepping</a><a href="#artifact">Artifact integrity</a><a href="#gates">Gates and permissions</a><a href="#delivery">Delivery verification</a><a href="#environment">Environment and cost</a><a href="#commands">Run locally</a><a href="#failures">Failures and rollback</a><a href="#evidence">Evidence and limits</a></aside><article class="doc">
+<span class="status">Implemented workflow contract</span><h1>Build, test &amp; publish</h1>
+<p class="lead">Astrava uses a tiered pipeline: run inexpensive checks on every change, apply browser checks according to risk, and publish the exact artifact that passed. Delivery verification is deliberately smaller than engine regression.</p>
+<div class="callout"><strong>Source of truth:</strong> <code>.github/workflows/pages.yml</code>, <code>validation.yml</code>, <code>renderer-diagnostics.yml</code>, and <code>scripts/ci/</code>. This page describes their implemented behaviour. It does not claim hardware performance, exhaustive visual correctness or configured branch protection.</div>
+<h2 id="flow">1. End-to-end flow</h2>
+<div class="diagram">Pull request / push to main / manual run
+                 │
+       Fast checks + change classification
+                 │
+          Build dist exactly once
+                 │
+    Static links + per-file SHA256 manifest
+                 │
+      Sealed astrava-site / site.tgz artifact
+                 │
+        ┌────────┴──────────────────────┐
+        │                               │
+ Production WebGPU smoke         Full terrain when required
+ (quick or full profile)        edges │ corners+morphs │ flight+budgets
+        │                               │
+        └───────────────┬───────────────┘
+                 Validation gate
+                        │
+        Main only: verify and publish SAME artifact
+                        │
+          Published commit + manifest + asset hashes
+                        │
+         One fresh-browser visible-planet check</div>
+<p>Documentation-only changes skip pre-publication browser jobs but still run all behavioural tests, build validation and the post-publication browser check. Engine, pipeline and unknown changes run the full pre-publication suite. PR validation never publishes.</p>
+<h2 id="triggers">2. Workflow triggers and responsibilities</h2>
+<div class="table-wrap"><table><thead><tr><th>Workflow</th><th>Trigger</th><th>Behaviour</th></tr></thead><tbody>
+<tr><td>Astrava CI and Pages</td><td>Every pull request; every push to main</td><td>Calls reusable validation. A successful main push publishes. PRs cannot deploy.</td></tr>
+<tr><td>Astrava CI and Pages</td><td>Manual workflow_dispatch</td><td>force_full can widen validation; publish defaults false. Publication requires main and publish=true.</td></tr>
+<tr><td>Astrava reusable validation</td><td>workflow_call only</td><td>Owns classification, build-once, checks, hashes and the final gate. Shared by delivery and exhaustive regression.</td></tr>
+<tr><td>Astrava full regression</td><td>Sunday 03:23 UTC; manual on a selected ref</td><td>Always full, never deploys. Scheduled runs use the default branch. GitHub scheduling can be delayed.</td></tr>
+</tbody></table></div>
+<p>There is no separate exhaustive workflow on every feature-branch push. Open a PR to receive CI, or run full regression manually. This avoids running a feature push suite and an identical PR suite at the same time. A merge result is a new commit and is validated again; this pipeline does not reuse approvals from a different PR artifact.</p>
+<h2 id="selection">3. Conservative test selection</h2>
+<p><code>scripts/ci/plan.mjs</code> produces <code>.ci/plan.json</code> and tier outputs. Only explicitly recognised lower-risk paths may receive a reduced test plan. A mixed change takes the most demanding tier.</p>
+<div class="table-wrap"><table><thead><tr><th>Tier</th><th>Paths / conditions</th><th>Required pre-publication checks</th></tr></thead><tbody>
+<tr><td>docs</td><td>README.md, LICENSE, .gitignore; docs files ending html, md, png, svg, jpg or webp; or an empty known diff</td><td>All fast tests, build and static links/imports. Browser smoke and terrain jobs intentionally skip.</td></tr>
+<tr><td>smoke</td><td>Known marketing/demo HTML pages; src/styles.css; src/site.js; supported image assets; engine/demo.css</td><td>Fast tests plus quick production WebGPU smoke. These files can affect canvas layout or startup links.</td></tr>
+<tr><td>full</td><td>Engine code and WGSL, build/test scripts, dependencies/lockfile, workflow YAML, all other unclassified paths; unknown baseline; force_full=true</td><td>Fast tests, full production smoke/recovery and all three terrain groups.</td></tr>
+</tbody></table></div>
+<p><strong>No material-only exception exists yet.</strong> The current planet shader combines vertex and fragment work, so every change to it receives full validation. Moving shading into independent modules does not automatically grant an exemption: add a reviewed classifier rule and tests first.</p>
+<h3>Baseline handling prevents skipped-commit gaps</h3>
+<p>For a PR, classification uses the merge base between the PR base SHA and the checked-out test commit. On main, it compares HEAD with the <em>actually published</em> commit from the public <code>build-info.json</code>, not merely the push event's previous SHA. This catches engine changes from intermediate queued, failed or superseded pushes even when the latest commit edits only documentation.</p>
+<p>The baseline must be a 40-character hexadecimal commit, exist in the full checkout and be an ancestor of HEAD. A missing manifest, network failure, rewritten history or invalid SHA selects full validation. Deletions and renames are included by diffing paths without rename collapsing. Local classification can use <code>ASTRAVA_BASE_COMMIT</code>; uncertain input never silently downgrades testing.</p>
+<h2 id="checks">4. Test levels and exact coverage</h2>
+<h3>Fast checks: every validation run</h3>
+<p><code>npm run check</code> checks JavaScript syntax and runs every <code>tests/*.test.mjs</code> suite. Existing depth, frame-pacing, buffer-layout, cross-face topology, balancing, partition coverage and morph endpoint tests remain intact. Pipeline tests additionally verify tier classification, fail-closed gates, the 67-case partition, artifact corruption detection and browser-version/workflow consistency.</p>
+<p>After building, <code>scripts/ci/site-check.mjs</code> walks generated HTML and JavaScript. Local href/src targets and relative module imports must resolve inside the release. This detects missing documentation pages and versioned modules without launching a GPU. It is not a complete accessibility audit, semantic HTML validator, or remote-link checker.</p>
+<h3>Production browser smoke</h3>
+<div class="table-wrap"><table><thead><tr><th>Profile</th><th>Assertions</th><th>Use</th></tr></thead><tbody>
+<tr><td>quick</td><td>Normal startup submits real frames; visible shaded orbit; near orbit at production budget; a real seam transition at alpha 0.5 and its completed endpoint</td><td>Presentation/integration changes</td></tr>
+<tr><td>full</td><td>Quick checks plus cache-cleared reload, larger viewport, reset control, invalid-WGSL visible error and unsupported-WebGPU visible error</td><td>Engine/tooling changes and exhaustive runs</td></tr>
+<tr><td>delivery</td><td>Fresh browser, correct build and versioned asset graph, GPU/JS health and a visible production-shaded planet</td><td>After publication, including documentation-only releases</td></tr>
+</tbody></table></div>
+<p>Orbit checks require a nonblank shaded object against space. Nadir near-orbit checks require more than 99% non-clear coverage and shading diversity. Every successful frame also requires a running engine, nonzero bounded tiles, logical-cut and GPU-capacity compliance, and no unexpected GPU, JavaScript or resource-loading errors. An intentionally injected shader failure is handled separately and is expected to show an error rather than report online.</p>
+<h3>Full terrain regression: 67 cases, three isolated jobs</h3>
+<div class="table-wrap"><table><thead><tr><th>Group</th><th>Cases</th><th>Coverage</th></tr></thead><tbody>
+<tr><td>edges</td><td>24</td><td>Both sides of all twelve cube edges</td></tr>
+<tr><td>corners-morphs</td><td>19</td><td>Eight corners and eleven transition factors from 0 to 1</td></tr>
+<tr><td>flight-budgets</td><td>24</td><td>Descent/ascent through five altitudes at three factors; budgets 6, 24 and 96 at three factors</td></tr>
+</tbody></table></div>
+<p>Each job creates its own browser, initial orbit and 96-tile logical budget. No job depends on the last camera pose of another job. The test catalogue is <code>scripts/testing/terrain-cases.mjs</code>; a unit test verifies exactly 67 unique labels across the groups. One browser runs per runner, with up to three terrain runners in parallel. Fail-fast is disabled so a failure in one group does not erase evidence from the others.</p>
+<p>Terrain coverage executes the real production vertex shader, including displacement, stitching and morphing. Only the fragment output is replaced with a flat diagnostic colour, preventing dark oceans or night-side lighting from being counted as missing geometry. Each capture must exceed 99.9% coverage. Production shading is tested independently by the smoke job. Pixel tolerances are deliberate: the tests detect substantial holes, not mathematical perfection at every rasterised edge.</p>
+<h2 id="frames">5. How frame stepping reduces wasted rendering</h2>
+<p><code>scripts/testing/browser-harness.mjs</code> initially allows the ordinary requestAnimationFrame loop to run. After verified startup and at least two frames, the harness pauses scheduling, drains already-submitted GPU work, and stores subsequent frame callbacks. Each assertion explicitly executes the next callback, waits for its GPU work to complete, and captures the canvas while production scheduling remains paused.</p>
+<p>The simulation seed, inspection pose and morph factor remain controlled through the existing diagnostics interface. The engine's renderer is unchanged; the harness controls browser scheduling, not terrain geometry. This removes continuous redraw while Playwright evaluates DOM state, captures PNGs and computes coverage. It also stops the tests waiting for an element to appear stable while an expensive game loop competes for resources.</p>
+<p><strong>Current limitation:</strong> coverage still uses canvas screenshots and PNG decoding. Direct GPU-target readback is not implemented. We save one representative PNG per group/profile, all JSON measurements, and failure images; set <code>ASTRAVA_SCREENSHOTS=all</code> for every successful image. Fewer saved files reduce storage, while explicit frame scheduling and job parallelism provide the main elapsed-time reduction.</p>
+<h2 id="artifact">6. Build-once and artifact integrity</h2>
+<p>The prepare job builds <code>dist/</code> exactly once, after fast checks. The existing build isolates the engine dependency graph under <code>runtime/&lt;commit&gt;/engine/</code>, writes the matching build-info module and public <code>build-info.json</code>, and points demo.html at those exact script and shader paths.</p>
+<p><code>scripts/ci/artifact.mjs pack</code> creates <code>artifact-manifest.json</code> containing the commit and SHA256 of every regular release file, excluding the manifest itself. Symlinks are rejected. It then packages the tree as <code>.ci/site.tgz</code>, hashes that archive and the manifest, and exposes both hashes as job outputs. <code>.ci/release.json</code> records these identities.</p>
+<p>Smoke jobs, terrain jobs and the deployment job download the same <code>astrava-site</code> artifact from the same workflow run. Before using it, they check the archive hash, unpack it and verify the manifest hash, commit, complete file set and each file's content hash. A mismatch is an error, not a warning. They do not call the build script again.</p>
+<p>The Pages upload action wraps the verified directory in its own deployment format; no application rebuild occurs. Seven-day artifacts are convenient reproducibility evidence, not permanent releases or cryptographic author attestations. Checksums protect identity relative to the trusted producing job; they do not make malicious source code trustworthy.</p>
+<h2 id="gates">7. Gates, skips and permissions</h2>
+<p>The stable <strong>Validation gate</strong> job runs with <code>if: always()</code>. A docs plan permits deliberately skipped smoke/terrain jobs. A smoke plan requires smoke success. A full plan requires smoke success and success from the complete terrain matrix. Prepare must always succeed. Missing plans, unexpected skips, failures and cancellations fail the gate.</p>
+<p>Normal validation jobs have <code>contents: read</code>. Only the main deployment job receives <code>pages: write</code> and <code>id-token: write</code>, and it uses the github-pages environment. Checkout credentials are not persisted. No repository write token, external service secret or self-hosted machine is needed by tests. PRs run on ephemeral GitHub-hosted runners and cannot deploy through this workflow.</p>
+<p>Configure branch rules separately to require the displayed Validation gate check before merge. The workflow does not itself create or claim branch protection. A maintainer with permission to alter workflows can alter the gate; protect those files with review policy as the team grows.</p>
+<h2 id="delivery">8. Delivery verification and caching</h2>
+<p>Main runs are serialised without cancelling an active deployment. A newer pending run may replace an older pending run in GitHub's concurrency queue; comparing against the published baseline prevents a resulting classification gap. Superseded PR runs may be cancelled because they cannot publish.</p>
+<p>After deployment, <code>scripts/ci/published.mjs</code> polls for the expected commit with cache-busting queries, bounded request timeouts and an approximately three-minute retry window. The served manifest must match the tested manifest hash. It additionally fetches and hashes demo.html, the shared stylesheet, the versioned boot module, main module and planet WGSL against manifest entries. This is sampled delivery integrity, not a second full-file download.</p>
+<p>A new browser then runs the delivery profile. Its requested engine files must use the expected versioned path and it must actually render the planet. The full terrain and recovery suites are not repeated on Pages. A post-deployment failure makes the workflow red but cannot undo an already completed publication. There is no automatic rollback.</p>
+<h2 id="environment">9. Reproducible test environment and costs</h2>
+<p>Test dependencies are committed in package-lock.json and installed with <code>npm ci --ignore-scripts</code>. The current Playwright package is 1.55.1; browser jobs use the matching <code>mcr.microsoft.com/playwright:v1.55.1-noble</code> image. This retains the previously tested browser version rather than silently upgrading graphics behaviour. The image supplies browser binaries and Linux dependencies; the project still installs its own pinned JavaScript packages. Setup-node selects Node 22 and caches npm downloads by lockfile.</p>
+<p>The Linux harness uses Xvfb with Vulkan/SwiftShader flags inside the ephemeral test environment. These are CI-only launch settings, not instructions to weaken a user's browser. The image runs trusted project tests as root with sandbox disabled; do not repurpose it for arbitrary websites. Software rendering verifies correctness but says nothing about native GPU frame rate. Real-GPU/browser coverage remains a separate future validation layer.</p>
+<p>The image is version-tagged, not digest-pinned, and Actions references still use major-version tags. Updating packages, the browser image or infrastructure should receive full validation. Image pulls and runner queues may outweigh savings for very small jobs. Three terrain jobs reduce critical-path time but can increase billed runner minutes; the pipeline promises selected coverage, not a universal speedup ratio.</p>
+<h2 id="commands">10. Local and manual execution</h2>
+<pre>npm ci --ignore-scripts
+npm run check
+npm run build
+npm run check:site
+
+# Linux: install the matched browser/dependencies once, outside the container.
+npx playwright install --with-deps chromium
+xvfb-run -a npm run test:smoke
+xvfb-run -a npm run test:browser
+xvfb-run -a node scripts/terrain-browser.mjs --group=edges
+xvfb-run -a npm run test:terrain
+
+# Collect every successful screenshot when investigating a regression.
+ASTRAVA_SCREENSHOTS=all xvfb-run -a npm run test:terrain</pre>
+<p>On a desktop with a display, invoke the Node/npm scripts without xvfb-run. Build first because browser tests serve dist, not working-tree source files. A local build uses the local Git HEAD as its label even when the worktree is dirty; it is not a release attestation. CI builds a clean checked-out commit and records hashes. The optional <code>ASTRAVA_CHROMIUM</code> points to a local executable for diagnostics; CI uses the image-matched browser and does not set it.</p>
+<p>From GitHub Actions, choose Astrava full regression to test a branch without publishing. Choose Astrava CI and Pages on main with force_full=true and publish=true for a deliberately exhaustive publication. Manual controls can widen tests but cannot narrow an automatically selected full plan. Artifact downloads and browser tests can also be rerun as failed jobs within the same run while the artifacts remain available.</p>
+<h2 id="failures">11. Diagnosing failures and rolling back</h2>
+<div class="table-wrap"><table><thead><tr><th>Failure stage</th><th>Inspect</th><th>Response</th></tr></thead><tbody>
+<tr><td>Classifier selects full unexpectedly</td><td>validation-plan / plan.json baseline and file list</td><td>Check missing publication identity or unclassified paths. Keep full unless a reviewed rule justifies reducing it.</td></tr>
+<tr><td>Fast tests or static links</td><td>Prepare job logs</td><td>Fix invariant, syntax or generated URL errors before browser testing.</td></tr>
+<tr><td>Artifact verification</td><td>Expected archive/manifest hashes and release.json</td><td>Do not bypass. Check mismatched jobs, wrong artifact or post-build modifications.</td></tr>
+<tr><td>WGSL/device/blank render</td><td>webgpu-smoke-evidence results.json and failure-page.png</td><td>Read the actual GPU error/build ID; distinguish compile failure from missing geometry or unavailable adapter.</td></tr>
+<tr><td>Terrain coverage</td><td>terrain-evidence group, failing label, morph factor and failure PNG</td><td>Reproduce that independent group locally. Do not relax tolerances solely to make CI green.</td></tr>
+<tr><td>Delivery</td><td>published-delivery-evidence; build-info.json; expected commit</td><td>Determine stale publication, wrong asset path or browser failure. The new site may already be live.</td></tr>
+</tbody></table></div>
+<p>For rollback, identify a known-good commit, revert the offending source changes on main, and allow the normal gates and publication flow to create a new release. Do not force-reset history or deploy an unverified directory. Export long-term releases separately if seven-day artifacts are insufficient. Workflow timeouts are hard failures: prepare 6 minutes, smoke 10, each terrain group 12, gate 3, deploy 10 and delivery 8.</p>
+<h2 id="evidence">12. Evidence and limits</h2>
+<p>Artifacts retained seven days: astrava-site, validation-plan, webgpu-smoke-evidence, one terrain-evidence artifact per group, and published-delivery-evidence. Browser JSON records the tested build, case labels, frame counts, logical/rendered tile counts, morph factors, coverage and failures. Representative screenshots remain available without saving every successful frame.</p>
+<p>All original 67 terrain cases remain in the catalogue, now independently initialised and sharded. The CPU suites continue to cover mathematical properties beyond those images. This pipeline does not yet use direct GPU readback, per-vendor hardware runners, temporal image-difference metrics, exhaustive atmosphere tests, automatic rollback, cross-workflow artifact promotion or guaranteed execution-time budgets. Add those only when their risks justify their cost.</p>
+<h2 id="references">13. Upstream references</h2>
+<p><a href="https://playwright.dev/docs/docker">Playwright: matching browser containers and package versions</a> · <a href="https://playwright.dev/docs/ci">Playwright CI guidance</a> · <a href="https://docs.github.com/en/actions/tutorials/store-and-share-data">GitHub artifact transfer and digest checks</a> · <a href="https://docs.github.com/actions/writing-workflows/choosing-what-your-workflow-does/running-variations-of-jobs-in-a-workflow">GitHub matrix jobs</a> · <a href="https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows">Reusable workflows</a>.</p>
+</article></div></section></main></body></html>

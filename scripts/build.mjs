@@ -1,4 +1,4 @@
-import { cp, rm, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, rm, mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 let revision=process.env.GITHUB_SHA;
 if(!revision){try{revision=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();}catch{revision='local-development';}}
@@ -14,3 +14,10 @@ await writeFile('dist/demo.html',html);
 await writeFile('dist/build-info.json',JSON.stringify({commit:revision,runtime,builtAt:new Date().toISOString()},null,2));
 await writeFile('dist/.nojekyll','');
 console.log(`Astrava build ${revision}: runtime imports and WGSL isolated under ${runtime}`);
+// Publish a consistent pipeline navigation entry on every technical page.
+for (const file of await readdir('dist/docs')) {
+  if (!file.endsWith('.html') || file === 'pipeline.html') continue;
+  const path = `dist/docs/${file}`;
+  const page = await readFile(path, 'utf8');
+  if (!page.includes('href="pipeline.html"')) await writeFile(path, page.replace('</aside>', '<a href="pipeline.html">Build, test &amp; publish</a></aside>'));
+}

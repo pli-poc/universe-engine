@@ -1,39 +1,54 @@
 # Astrava
 
-A WebGPU-native procedural universe prototype. The live entry is `demo.html`; the product website and engine documentation are published by GitHub Pages.
+A WebGPU-native procedural universe prototype. `demo.html` is the live entry; the product website and engine documentation publish through GitHub Pages.
 
 ## Phase 2B: seam-safe terrain
 
-Implemented: Float64 universe coordinates, rotating reference frames, camera-relative rendering, reverse-Z depth, a complete budget-bounded cube-sphere cut, neighbours across all six faces, atomic 2:1 balancing, geometric edge stitching without skirts, common-refinement source/target morphing, consistent outward winding/backface culling, and version-isolated scripts/shaders with visible GPU errors.
+Implemented: Float64 coordinates, rotating reference frames, camera-relative rendering, reverse-Z depth, budget-bounded cube-sphere cuts, cross-face neighbours, atomic 2:1 balancing, geometric stitching without skirts, coordinated source/target morphing, outward winding/backface culling, and version-isolated scripts/shaders with visible GPU errors.
 
-The selector uses projected patch footprint, not yet a certified geometric-error bound. It runs on the CPU with a max-heap. Horizon culling is NOT active. Logical cuts default to 1,536 tiles; transitional rendering has a separate 4,096-instance capacity. Endpoint surfaces morph together over 0.35 simulation seconds.
+The CPU selector uses projected patch footprint, not a certified geometric-error bound. Horizon culling is not active. Logical cuts default to 1,536 tiles; transitions have a separate 4,096-instance capacity and morph over 0.35 simulation seconds.
 
-The environment is still a visual prototype: the sky is a rim approximation, terrain is seeded fractal noise, normals remain radial and low terrain is colored blue rather than being a separate ocean simulation. No landing physics or ground-level centimetre precision is claimed.
+The environment remains a prototype: rim-light atmosphere, seeded fractal terrain, radial normals and blue low terrain rather than a separate ocean. No landing physics or centimetre-scale surface precision is claimed.
 
 ## Development
 
 ```sh
-python -m http.server 8080
-# open http://localhost:8080/demo.html
+npm ci --ignore-scripts
 npm run check
 npm run build
+npm run check:site
+python -m http.server 8080 --directory dist
 ```
 
-The static release goes to `dist/`. The build isolates the full engine dependency graph below `runtime/<commit>/engine/` and exposes its commit ID in the HUD.
+The build isolates the engine dependency graph below `runtime/<commit>/engine/` and exposes the commit in the HUD.
 
 ## Controls
 
-Click the viewport for pointer lock. Mouse looks; WASD flies; Q/E move vertically; Shift boosts; Esc releases the pointer. R resets orbit, L toggles the tile grid. Inspection buttons show near orbit, a cube-face seam, a cube corner and 10 km altitude. These are inspection poses, not a landing mode.
+Click for pointer lock. Mouse looks; WASD flies; Q/E move vertically; Shift boosts; Esc releases. R resets orbit, L toggles the tile grid. Inspection buttons show near orbit, a face seam, a cube corner and 10 km altitude, not a landing mode.
 
-## Tests and publication
+## Implemented tiered pipeline
 
-`npm run check` runs JavaScript syntax and all `tests/*.test.mjs` suites, including reference frames/depth, safe TypedArray uploads, cube topology, budget invariants and transition continuity. Linux browser CI uses Playwright Chromium with Vulkan/SwiftShader under Xvfb. `scripts/browser-smoke.mjs` tests real production rendering and failure states. `scripts/terrain-browser.mjs` tests the production vertex path with a flat coverage fragment shader through seams, corners, intermediate morphs, descent/ascent and six-root budgets. Both gate Pages publication; screenshots and JSON evidence are retained as Actions artifacts. Software-GPU timing is not a hardware performance benchmark.
+`.github/workflows/pages.yml` calls reusable `validation.yml`. Every change runs fast tests and builds once. Conservative path classification selects docs-only, production smoke, or full regression. Full terrain validation retains all 67 cases in three independent parallel groups. Matching Playwright containers and locked npm dependencies avoid repeated browser provisioning. Tests explicitly step frames instead of redrawing continuously during screenshots.
+
+The exact SHA256-verified build artifact is published after the required gate. A small fresh-browser check verifies published identity and a visible planet, rather than repeating full terrain regression. Weekly/manual exhaustive regression never deploys. Pipeline/tooling changes and unknown baselines default to full validation.
+
+```sh
+# Install browser/dependencies once when not using the matching container.
+npx playwright install --with-deps chromium
+xvfb-run -a npm run test:smoke
+xvfb-run -a npm run test:browser
+xvfb-run -a node scripts/terrain-browser.mjs --group=edges
+xvfb-run -a npm run test:terrain
+```
+
+On a desktop display omit `xvfb-run -a`. Build first. `ASTRAVA_SCREENSHOTS=all` retains all successful captures; normal runs retain representative/failure PNGs and all JSON measurements. Software-GPU timing is not a hardware benchmark.
 
 ## Documentation
 
-- `docs/index.html`: architecture overview
-- `docs/planets.html`: implemented planet system versus design targets
-- `docs/terrain-2b.html`: complete Phase 2B contracts, algorithms, GPU ABI, test strategy and limitations
-- `docs/rendering-recovery.md`: earlier renderer failure/recovery findings
+- [Engine overview](docs/index.html)
+- [Planet system](docs/planets.html)
+- [Phase 2B contracts and limitations](docs/terrain-2b.html)
+- [Build, test and publish: complete pipeline](docs/pipeline.html)
+- [Renderer recovery findings](docs/rendering-recovery.md)
 
-Next: close-up precision and shading, physical atmosphere, real generated-tile residency/caching, and only then further rendering/simulation layers.
+Next engine layers remain close-up precision/shading, physical atmosphere and actual generated-tile caching. This CI update does not change the renderer.

@@ -1,0 +1,163 @@
+name: Astrava reusable validation
+on:
+  workflow_call:
+    inputs:
+      force_full:
+        type: boolean
+        default: false
+    outputs:
+      archive_sha:
+        value: ${{ jobs.prepare.outputs.archive_sha }}
+      manifest_sha:
+        value: ${{ jobs.prepare.outputs.manifest_sha }}
+      commit:
+        value: ${{ jobs.prepare.outputs.commit }}
+      tier:
+        value: ${{ jobs.prepare.outputs.tier }}
+permissions:
+  contents: read
+jobs:
+  prepare:
+    name: Fast checks and build once
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    outputs:
+      tier: ${{ steps.plan.outputs.tier }}
+      smoke: ${{ steps.plan.outputs.smoke }}
+      full: ${{ steps.plan.outputs.full }}
+      archive_sha: ${{ steps.pack.outputs.archive_sha }}
+      manifest_sha: ${{ steps.pack.outputs.manifest_sha }}
+      commit: ${{ steps.pack.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run check
+      - id: plan
+        name: Classify changes conservatively
+        env:
+          ASTRAVA_FORCE_FULL: ${{ inputs.force_full }}
+        run: node scripts/ci/plan.mjs
+      - run: npm run build
+      - run: node scripts/ci/site-check.mjs
+      - id: pack
+        name: Seal release files and archive
+        run: node scripts/ci/artifact.mjs pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: astrava-site
+          include-hidden-files: true
+          path: .ci/site.tgz
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: validation-plan
+          include-hidden-files: true
+          path: |
+            .ci/plan.json
+            .ci/release.json
+          retention-days: 7
+  smoke:
+    name: Production WebGPU smoke
+    needs: prepare
+    if: needs.prepare.outputs.smoke == 'true'
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.55.1-noble
+      options: --ipc=host
+    timeout-minutes: 10
+    env:
+      ASTRAVA_EXPECT_COMMIT: ${{ needs.prepare.outputs.commit }}
+      ASTRAVA_ARCHIVE_SHA: ${{ needs.prepare.outputs.archive_sha }}
+      ASTRAVA_MANIFEST_SHA: ${{ needs.prepare.outputs.manifest_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@v4
+        with:
+          name: astrava-site
+          path: .ci
+      - run: node scripts/ci/artifact.mjs unpack
+      - name: Real rendering and relevant recovery checks
+        env:
+          PROFILE: ${{ needs.prepare.outputs.full == 'true' && 'full' || 'quick' }}
+        run: xvfb-run -a node scripts/browser-smoke.mjs --profile=$PROFILE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: webgpu-smoke-evidence
+          path: test-results/
+          retention-days: 7
+  terrain:
+    name: Terrain / ${{ matrix.group }}
+    needs: prepare
+    if: needs.prepare.outputs.full == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        group: [edges, corners-morphs, flight-budgets]
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.55.1-noble
+      options: --ipc=host
+    timeout-minutes: 12
+    env:
+      ASTRAVA_EXPECT_COMMIT: ${{ needs.prepare.outputs.commit }}
+      ASTRAVA_ARCHIVE_SHA: ${{ needs.prepare.outputs.archive_sha }}
+      ASTRAVA_MANIFEST_SHA: ${{ needs.prepare.outputs.manifest_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@v4
+        with:
+          name: astrava-site
+          path: .ci
+      - run: node scripts/ci/artifact.mjs unpack
+      - name: Deterministic production-vertex coverage
+        env:
+          GROUP: ${{ matrix.group }}
+        run: xvfb-run -a node scripts/terrain-browser.mjs --group=$GROUP
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: terrain-evidence-${{ matrix.group }}
+          path: test-results/
+          retention-days: 7
+  gate:
+    name: Validation gate
+    needs: [prepare, smoke, terrain]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Enforce planned checks (failure, cancellation or unexpected skip blocks publication)
+        env:
+          ASTRAVA_TIER: ${{ needs.prepare.outputs.tier }}
+          ASTRAVA_RESULTS: '{"prepare":"${{ needs.prepare.result }}","smoke":"${{ needs.smoke.result }}","terrain":"${{ needs.terrain.result }}"}'
+        run: node scripts/ci/plan.mjs gate
