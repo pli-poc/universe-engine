@@ -74,16 +74,16 @@ fn stitchedPosition(input:VSIn)->vec4<f32>{
 fn displacedNormal(i:VSOut)->vec3<f32>{let radial=normalize(i.radial);let dx=dpdx(i.worldPos);let dy=dpdy(i.worldPos);let c=cross(dx,dy);let l2=dot(c,c);if(l2<1e-10){return radial;}var n=c*inverseSqrt(l2);if(dot(n,radial)<0.0){n=-n;}return n;}
 fn materialWeights(radial:vec3<f32>,n:vec3<f32>,h:f32)->vec4<f32>{
   let hn=h/max(u.timeRotationHeight.z,1.0);let slope=1.0-clamp(dot(n,radial),0.0,1.0);let lat=abs(radial.y);let seed=vec3<f32>(u.timeRotationHeight.w);
-  let macro=noise(radial*8.0+seed*.013);let regional=noise(radial*37.0+seed*.071);
-  let basin=(1.0-smoothstep(-.03,.07,hn))*(.8+.2*macro);
+  let macroField=noise(radial*8.0+seed*.013);let regional=noise(radial*37.0+seed*.071);
+  let basin=(1.0-smoothstep(-.03,.07,hn))*(.8+ .2*macroFieldField);
   let snow=smoothstep(.38,.7,hn+lat*.23+regional*.05)*(1.0-smoothstep(.18,.62,slope));
   let rock=clamp(smoothstep(.12,.58,slope)+smoothstep(.27,.62,hn)*.45,0.0,1.0)*(1.0-snow*.7);
-  let soil=max(0.03,1.0-basin-snow-rock)*(.75+.25*macro);
+  let soil=max(0.03,1.0-basin-snow-rock)*(.75+.25*macroField);
   let w=max(vec4<f32>(basin,soil,rock,snow),vec4<f32>(0));return w/max(dot(w,vec4<f32>(1)),1e-5);
 }
 fn materialBase(w:vec4<f32>,radial:vec3<f32>)->vec3<f32>{let variation=noise(radial*52.0+vec3<f32>(u.timeRotationHeight.w*.19));let basin=mix(vec3<f32>(.015,.055,.075),vec3<f32>(.035,.095,.115),variation);let soil=mix(vec3<f32>(.105,.095,.055),vec3<f32>(.20,.17,.085),variation);let rock=mix(vec3<f32>(.16,.15,.135),vec3<f32>(.32,.29,.25),variation);let snow=mix(vec3<f32>(.72,.76,.79),vec3<f32>(.94,.96,.98),variation);return basin*w.x+soil*w.y+rock*w.z+snow*w.w;}
 fn materialRoughness(w:vec4<f32>)->f32{return dot(w,vec4<f32>(.34,.86,.62,.52));}
-fn detailNormal(n0:vec3<f32>,radial:vec3<f32>,rough:f32,i:VSOut)->vec3<f32>{let d=noise(radial*1800.0+vec3<f32>(u.timeRotationHeight.w*.031));let gx=dpdx(d),gy=dpdy(d);let tx=normalize(dpdx(i.worldPos));let ty=normalize(dpdy(i.worldPos));return normalize(n0-(tx*gx+ty*gy)*(5.0+rough*9.0)*u.renderParams.z);}
+fn detailNormal(n0:vec3<f32>,radial:vec3<f32>,rough:f32,i:VSOut)->vec3<f32>{let d=noise(radial*1800.0+vec3<f32>(u.timeRotationHeight.w*.031));let gx=dpdx(d);let gy=dpdy(d);let tx=normalize(dpdx(i.worldPos));let ty=normalize(dpdy(i.worldPos));return normalize(n0-(tx*gx+ty*gy)*(5.0+rough*9.0)*u.renderParams.z);}
 fn pow5(x:f32)->f32{let x2=x*x;return x2*x2*x;}
 fn fresnelSchlick(f0:vec3<f32>,VoH:f32)->vec3<f32>{return f0+(vec3<f32>(1)-f0)*pow5(1.0-VoH);}
 fn distributionGGX(NoH:f32,a:f32)->f32{let a2=a*a;let d=NoH*NoH*(a2-1.0)+1.0;return a2/max(PI*d*d,1e-5);}
