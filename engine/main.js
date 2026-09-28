@@ -20,7 +20,7 @@ async function boot(){
   const budget=Number.isFinite(requested)?Math.max(6,Math.min(maxLogical,Math.floor(requested))):maxLogical;
   const quadtree=new PlanetQuadtree({maxLevel:12,splitPixels:230,mergePixels:135,maxTiles:budget});
   const transitions=new TerrainTransitions({capacity:renderer.instanceCapacity,duration:.35}),camera=new FreeCamera(v3());
-  let simTime=0,selectionAge=1,grid=false,hold=false,debugMode=0;
+  let simTime=0,selectionAge=1,grid=false,hold=false,debugMode=0,detailStrength=1;
   function setView({direction=[-.65,.14,.75],altitude=planet.radius*1.55}={}){
     if(direction.length!==3||!direction.every(Number.isFinite)||Math.hypot(...direction)===0||!Number.isFinite(altitude)||altitude<=0)throw new RangeError('Invalid inspection pose');
     const d=normalize(v3(...direction)),a=planet.frame.angleAt(simTime),c=Math.cos(a),s=Math.sin(a),distance=planet.radius+altitude;
@@ -36,6 +36,7 @@ async function boot(){
   document.addEventListener('keydown',event=>{if(event.code==='KeyR')setView();if(event.code==='KeyL')grid=!grid;});addEventListener('blur',()=>camera.keys.clear());
   if(params.has('diagnostics'))window.__astravaDebug={
     setView,
+    setDetailStrength(value){if(!Number.isFinite(value)||value<0||value>1)throw new RangeError('Detail strength must be in [0,1]');detailStrength=value;},
     setBudget(value){if(!Number.isInteger(value)||value<6||value>maxLogical)throw new RangeError('Invalid tile budget');quadtree.maxTiles=value;selectionAge=1;},
     hold(value){hold=!!value;},
     transitionTo(pose){if(transitions.active)transitions.advance(transitions.duration);setView(pose);const center=planet.universePosition(simTime);transitions.offer(quadtree.select({planetRadius:planet.radius,cameraRelativeWorld:sub(camera.position,center),planetRotation:planet.frame.angleAt(simTime),viewportHeight:canvas.height,fovY:Math.PI/3}));hold=true;selectionAge=0;return transitions.active;},
@@ -56,10 +57,10 @@ async function boot(){
         transitions.offer(quadtree.select({planetRadius:planet.radius,cameraRelativeWorld:relative,planetRotation:rotation,viewportHeight:canvas.height,fovY:fov}));selectionAge=0;
       }
       const projection=perspective(fov,canvas.width/canvas.height,Math.max(1,Math.min(100,Math.max(altitude,0)*.001))),uniforms=new Float32Array(36);
-      uniforms.set(mul(projection,viewRotation(camera.yaw,camera.pitch)));uniforms.set([-relative[0],-relative[1],-relative[2],planet.radius],16);uniforms.set([simTime,rotation,planet.maxTerrainHeight,planet.seed],20);uniforms.set([...normalize(sub(system.star.position,center)),4.5],24);uniforms.set([Math.max(0,altitude),distance,grid?1:0,transitions.alpha],28);uniforms.set([1.15,debugMode,1,0],32);
+      uniforms.set(mul(projection,viewRotation(camera.yaw,camera.pitch)));uniforms.set([-relative[0],-relative[1],-relative[2],planet.radius],16);uniforms.set([simTime,rotation,planet.maxTerrainHeight,planet.seed],20);uniforms.set([...normalize(sub(system.star.position,center)),4.5],24);uniforms.set([Math.max(0,altitude),distance,grid?1:0,transitions.alpha],28);uniforms.set([1.15,debugMode,detailStrength,0],32);
       const centerRelative=[-relative[0],-relative[1],-relative[2]],instances=renderInstances(transitions.renderTiles,t=>tileAnchorCameraRelative(t,planet.radius,rotation,centerRelative));
       const count=renderer.render(uniforms,instances);
-      Object.assign(diagnostics,{frames:diagnostics.frames+1,tiles:count,altitude,logicalTiles:transitions.target.length,cutBudget:quadtree.maxTiles,drawCapacity:renderer.instanceCapacity,inFlight:renderer.inFlight,transitioning:transitions.active,morph:transitions.alpha,stitchedEdges:quadtree.stats.stitchedEdges,balanceSplits:quadtree.stats.balanceSplits,phase:'2C',debugMode,clearanceGuard:planet.maxTerrainHeight+500});
+      Object.assign(diagnostics,{frames:diagnostics.frames+1,tiles:count,altitude,logicalTiles:transitions.target.length,cutBudget:quadtree.maxTiles,drawCapacity:renderer.instanceCapacity,inFlight:renderer.inFlight,transitioning:transitions.active,morph:transitions.alpha,stitchedEdges:quadtree.stats.stitchedEdges,balanceSplits:quadtree.stats.balanceSplits,phase:'2C',debugMode,detailStrength,clearanceGuard:planet.maxTerrainHeight+500});
       averageMs=averageMs*.92+elapsed*.08;element('altitude').textContent=fmt(Math.max(0,altitude));element('distance').textContent=fmt(distance);element('frame-time').textContent=`${averageMs.toFixed(1)} ms`;element('tiles').textContent=String(count);element('lod').textContent=String(quadtree.stats.maxLevel);element('budget').textContent=quadtree.stats.budgetLimited?'LIMITED · balanced parents retained':'OK';
       if(element('stitches'))element('stitches').textContent=String(quadtree.stats.stitchedEdges);if(element('transition'))element('transition').textContent=transitions.active?`Morphing ${(transitions.alpha*100).toFixed(0)}%`:'Stable';
       if(diagnostics.frames===1)renderer.verifyFirstFrame().then(()=>{if(!stopped){diagnostics.state='running';element('runtime-status').textContent='WebGPU online · procedural PBR surface';}}).catch(fail);

@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { harness } from './testing/browser-harness.mjs';
+import { surfaceQuality } from './testing/shading-quality.mjs';
 const profile = process.argv.find(a=>a.startsWith('--profile='))?.split('=')[1] || 'quick';
 if (!['quick','full','delivery'].includes(profile)) throw new Error(`Unknown profile ${profile}`);
-const h = await harness({ name:process.env.ASTRAVA_TEST_NAME || `smoke-${profile}` });
+const name=process.env.ASTRAVA_TEST_NAME || `smoke-${profile}`;
+const h = await harness({ name });
 let failure;
 try {
   await h.open('?diagnostics');
@@ -14,6 +16,7 @@ try {
     await h.frame('seam-mid-morph','near');
     await h.page.evaluate(()=>window.__astravaDebug.setMorph(1));
     await h.frame('seam-complete','near');
+    await surfaceQuality(h,{output:`test-results/${name}`,negativeControl:profile==='full'});
   }
   if (profile === 'full') {
     const session=await h.page.context().newCDPSession(h.page);

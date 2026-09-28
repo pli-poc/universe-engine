@@ -74,7 +74,8 @@ fn stitchedPosition(input:VSIn)->vec4<f32>{
 fn displacedNormal(i:VSOut)->vec3<f32>{let radial=normalize(i.radial);let dx=dpdx(i.worldPos);let dy=dpdy(i.worldPos);let c=cross(dx,dy);let l2=dot(c,c);if(l2<1e-10){return radial;}var n=c*inverseSqrt(l2);if(dot(n,radial)<0.0){n=-n;}return n;}
 fn materialWeights(radial:vec3<f32>,n:vec3<f32>,h:f32)->vec4<f32>{
   let hn=h/max(u.timeRotationHeight.z,1.0);let slope=1.0-clamp(dot(n,radial),0.0,1.0);let lat=abs(radial.y);let seed=vec3<f32>(u.timeRotationHeight.w);
-  let macroField=noise(radial*8.0+seed*.013);let regional=noise(radial*37.0+seed*.071);
+  let body=rotateY(radial,-u.timeRotationHeight.y);
+  let macroField=noise(body*8.0+seed*.013);let regional=noise(body*37.0+seed*.071);
   let basin=(1.0-smoothstep(-.03,.07,hn))*(.8+ .2*macroField);
   let snow=smoothstep(.38,.7,hn+lat*.23+regional*.05)*(1.0-smoothstep(.18,.62,slope));
   let rock=clamp(smoothstep(.12,.58,slope)+smoothstep(.27,.62,hn)*.45,0.0,1.0)*(1.0-snow*.7);
@@ -83,7 +84,67 @@ fn materialWeights(radial:vec3<f32>,n:vec3<f32>,h:f32)->vec4<f32>{
 }
 fn materialBase(w:vec4<f32>,radial:vec3<f32>)->vec3<f32>{let variation=noise(radial*52.0+vec3<f32>(u.timeRotationHeight.w*.19));let basin=mix(vec3<f32>(.015,.055,.075),vec3<f32>(.035,.095,.115),variation);let soil=mix(vec3<f32>(.105,.095,.055),vec3<f32>(.20,.17,.085),variation);let rock=mix(vec3<f32>(.16,.15,.135),vec3<f32>(.32,.29,.25),variation);let snow=mix(vec3<f32>(.72,.76,.79),vec3<f32>(.94,.96,.98),variation);return basin*w.x+soil*w.y+rock*w.z+snow*w.w;}
 fn materialRoughness(w:vec4<f32>)->f32{return dot(w,vec4<f32>(.34,.86,.62,.52));}
-fn detailNormal(n0:vec3<f32>,radial:vec3<f32>,rough:f32,i:VSOut)->vec3<f32>{let d=noise(radial*1800.0+vec3<f32>(u.timeRotationHeight.w*.031));let gx=dpdx(d);let gy=dpdy(d);let tx=normalize(dpdx(i.worldPos));let ty=normalize(dpdy(i.worldPos));return normalize(n0-(tx*gx+ty*gy)*(5.0+rough*9.0)*u.renderParams.z);}
+// Procedural detail is a height-field gradient, NOT a difference between pixels.
+// Each octave is removed before the pixel footprint reaches half a lattice cell.
+// Values are cell widths in metres and dimensionless surface-slope amplitudes.
+fn surfaceBandWeight(cellsPerPixel:f32)->f32 {
+  return 1.0-smoothstep(0.125,0.5,cellsPerPixel);
+}
+fn surfaceHash(cell:vec3<i32>)->f32 {
+  var h=bitcast<u32>(cell.x)*0x8da6b343u;
+  h^=bitcast<u32>(cell.y)*0xd8163841u;
+  h^=bitcast<u32>(cell.z)*0xcb1ab31fu;
+  h^=u32(u.timeRotationHeight.w)*0x27d4eb2du;
+  h=(h^(h>>16u))*0x7feb352du;
+  h=(h^(h>>15u))*0x846ca68bu;
+  h^=h>>16u;
+  return f32(h>>8u)*(1.0/16777216.0);
+}
+// Exact analytic gradient of quintic-interpolated lattice value noise.
+fn surfaceNoiseGradient(p:vec3<f32>)->vec3<f32> {
+  let cell=vec3<i32>(floor(p));
+  let f=fract(p);
+  let s=f*f*f*(f*(f*6.0-vec3<f32>(15.0))+vec3<f32>(10.0));
+  let ds=30.0*f*f*(f-vec3<f32>(1.0))*(f-vec3<f32>(1.0));
+  let h000=surfaceHash(cell);
+  let h100=surfaceHash(cell+vec3<i32>(1,0,0));
+  let h010=surfaceHash(cell+vec3<i32>(0,1,0));
+  let h110=surfaceHash(cell+vec3<i32>(1,1,0));
+  let h001=surfaceHash(cell+vec3<i32>(0,0,1));
+  let h101=surfaceHash(cell+vec3<i32>(1,0,1));
+  let h011=surfaceHash(cell+vec3<i32>(0,1,1));
+  let h111=surfaceHash(cell+vec3<i32>(1,1,1));
+  let a=mix(h000,h100,s.x);let b=mix(h010,h110,s.x);
+  let c=mix(h001,h101,s.x);let d=mix(h011,h111,s.x);
+  return ds*vec3<f32>(
+    mix(mix(h100-h000,h110-h010,s.y),mix(h101-h001,h111-h011,s.y),s.z),
+    mix(b-a,d-c,s.z),
+    mix(c,d,s.y)-mix(a,b,s.y)
+  );
+}
+fn surfaceDetailLayer(body:vec3<f32>,footprint:f32,cellMeters:f32,slope:f32)->vec3<f32> {
+  let weight=surfaceBandWeight(footprint/cellMeters);
+  if(weight<=0.0){return vec3<f32>(0.0);}
+  return surfaceNoiseGradient(body*(u.centerRadius.w/cellMeters))*slope*weight;
+}
+fn detailNormal(n0:vec3<f32>,radial:vec3<f32>,rough:f32,i:VSOut)->vec3<f32> {
+  // Derivatives estimate the footprint only; never differentiate undersampled noise.
+  let dx=dpdx(radial);let dy=dpdy(radial);
+  let footprint=u.centerRadius.w*sqrt(dot(dx,dx)+dot(dy,dy));
+  let rotation=u.timeRotationHeight.y;
+  let body=rotateY(radial,-rotation);
+  let bodyNormal=rotateY(n0,-rotation);
+  var gradient=surfaceDetailLayer(body,footprint,2048.0,0.08)
+    +surfaceDetailLayer(body,footprint,256.0,0.06)
+    +surfaceDetailLayer(body,footprint,32.0,0.035)
+    +surfaceDetailLayer(body,footprint,4.0,0.02);
+  // Smooth basin placeholders need less relief than exposed rock.
+  let response=mix(0.05,1.0,smoothstep(0.4,0.65,rough));
+  gradient=(gradient-bodyNormal*dot(gradient,bodyNormal))*response*clamp(u.renderParams.z,0.0,1.0);
+  // Finite bounded slope: detail cannot turn a surface into glittering microfacets.
+  gradient*=min(1.0,0.18/max(length(gradient),1e-8));
+  return normalize(n0-rotateY(gradient,rotation));
+}
 fn pow5(x:f32)->f32{let x2=x*x;return x2*x2*x;}
 fn fresnelSchlick(f0:vec3<f32>,VoH:f32)->vec3<f32>{return f0+(vec3<f32>(1)-f0)*pow5(1.0-VoH);}
 fn distributionGGX(NoH:f32,a:f32)->f32{let a2=a*a;let d=NoH*NoH*(a2-1.0)+1.0;return a2/max(PI*d*d,1e-5);}
@@ -91,7 +152,7 @@ fn visibilitySmith(NoV:f32,NoL:f32,a:f32)->f32{let a2=a*a;let gv=NoL*sqrt(max(No
 fn aces(x:vec3<f32>)->vec3<f32>{return clamp((x*(2.51*x+.03))/(x*(2.43*x+.59)+.14),vec3<f32>(0),vec3<f32>(1));}
 fn linearToSrgb(x:vec3<f32>)->vec3<f32>{let lo=x*12.92;let hi=1.055*pow(max(x,vec3<f32>(0)),vec3<f32>(1.0/2.4))-.055;return select(hi,lo,x<=vec3<f32>(.0031308));}
 @fragment fn fsMain(i:VSOut)->@location(0) vec4<f32>{
-  let radial=normalize(i.radial);let geometric=displacedNormal(i);let weights=materialWeights(radial,geometric,i.height);let base=materialBase(weights,radial);let rough=clamp(materialRoughness(weights),.18,.96);let n=detailNormal(geometric,radial,rough,i);
+  let radial=normalize(i.radial);let geometric=displacedNormal(i);let weights=materialWeights(radial,geometric,i.height);let base=materialBase(weights,rotateY(radial,-u.timeRotationHeight.y));let rough=clamp(materialRoughness(weights),.18,.96);let n=detailNormal(geometric,radial,rough,i);
   let l=normalize(u.sunDirExposure.xyz);let v=normalize(-i.worldPos);let h=normalize(l+v);let NoL=max(dot(n,l),0.0);let NoV=max(dot(n,v),1e-4);let NoH=max(dot(n,h),0.0);let VoH=max(dot(v,h),0.0);
   let alpha=rough*rough;let f=fresnelSchlick(vec3<f32>(.04),VoH);let spec=distributionGGX(NoH,alpha)*visibilitySmith(NoV,NoL,alpha)*f;let diff=(vec3<f32>(1)-f)*base/PI;
   var hdr=(diff+spec)*NoL*u.sunDirExposure.w+base*.025;
